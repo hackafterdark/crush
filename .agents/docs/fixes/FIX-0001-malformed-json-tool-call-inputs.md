@@ -1,12 +1,16 @@
-# FIX-0001: Malformed JSON in Tool Call Inputs Causes Persistent 400 Bad Request
+# FIX-0001: Malformed JSON in Tool Call Inputs and Provider Options Causes Persistent 400 Bad Request
 
 ## Status
 
-**Applied** — `sanitizeJSONInput` validates output and falls back to `{}` on failure; coordinator has 3-tier retry with tool call strip fallback.
+**Applied** — `sanitizeJSONInput` validates output and falls back to `{}` on failure; coordinator has 3-tier retry with tool call strip fallback; `go-jsons` alpha dependency replaced with custom `jsonmerge` package; enhanced error logging throughout.
 
 ## Problem
 
-After a model produces a tool call with trailing garbage in its JSON input (e.g. `{"command": "ls"} }`), the stored tool call input reaches the provider on subsequent turns, causing a `400 Bad Request: Extra data: line 1 column 101 (char 100)` error. The error persists across retries, and the session is abandoned with "Goal continuation skipped due to agent error; use /goal resume to continue".
+Two separate JSON-related issues caused persistent `400 Bad Request` errors that abandoned sessions:
+
+1. **Malformed tool call inputs** — After a model produces a tool call with trailing garbage in its JSON input (e.g. `{"command": "ls"} }`), the stored tool call input reaches the provider on subsequent turns, causing a `400 Bad Request: Extra data: line 1 column 101 (char 100)` error.
+
+2. **Malformed provider options** — The `go-jsons` alpha library (`github.com/qjebbs/go-jsons v1.0.0-alpha.5`) produced malformed JSON when merging provider options (concatenated objects instead of deep-merged), causing the same "Extra data" errors from the LLM provider.
 
 ## Why It Occurred
 
@@ -16,6 +20,8 @@ The problem has two root causes:
 
 2. **The coordinator's single retry replayed the same state.** When the first attempt failed with a 400, the retry sent the same conversation history with the same malformed tool call input. If the sanitized input was still invalid, the retry failed identically, wasting a turn and abandoning the session.
 
+3. **`go-jsons` alpha library produced malformed JSON.** The library concatenated JSON objects instead of deep-merging them, producing output like `{"a":1}{"b":2}` instead of `{"a":1,"b":2}`. This caused the provider to reject requests with "Extra data" errors.
+
 ## When Users Encounter It
 
 Users hit this when:
@@ -24,6 +30,7 @@ Users hit this when:
 - The model produces unquoted keys or other non-standard JSON in tool call arguments
 - The conversation has accumulated tool calls and the malformed one is replayed on every subsequent turn
 - The error manifests as `bad request: Extra data: line 1 column X (char Y)` in logs
+- Provider options are configured in `crush.json` (model-level, provider-level, or catwalk-level)
 
 ## Fix
 
@@ -37,11 +44,30 @@ After stripping trailing characters, the function calls `json.Valid()` on the ca
 2. **Tier 2:** Retry with same state — the stored input is now sanitized (or `{}` if sanitization failed), so the provider should accept it
 3. **Tier 3:** Strip last tool call — if tier 2 also fails with a 400, the last assistant tool call is removed from the conversation history and the agent retries. The model can recover from the stripped context on this third attempt.
 
-The `isBadRequest` function filters which 400 errors are recoverable (containing "tool", "malformed", "invalid json", "context overflow", "too long", "overflow") and only retries those. Non-recoverable 400s (model not found, invalid parameters) are logged and surfaced without retry, preventing infinite loops.
+The `isBadRequest` function filters which 400 errors are recoverable (containing "tool", "malformed", "invalid json", "extra data", "context overflow", "too long", "overflow") and only retries those. Non-recoverable 400s (model not found, invalid parameters) are logged and surfaced without retry, preventing infinite loops.
 
 ### Context-based stripping (`internal/agent/runid.go`, `internal/agent/agent.go`)
 
 A new context key (`stripLastToolCallContextKey`) carries the strip signal from the coordinator into `preparePrompt`, which identifies and removes the last assistant tool call from the fantasy message list before sending to the provider.
+
+### Replace `go-jsons` with custom `jsonmerge` package (`internal/jsonmerge/`)
+
+Replaced the alpha `go-jsons` library with a custom zero-dependency deep-merge implementation:
+
+- **New:** `internal/jsonmerge/jsonmerge.go` — simple deep-merge of JSON objects, no external dependencies
+- **New:** `internal/jsonmerge/jsonmerge_test.go` — comprehensive tests covering nested objects, arrays, primitives, and the coordinator config merge pattern
+- **Modified:** `internal/agent/coordinator.go` — uses `jsonmerge.Merge()` instead of `jsons.Merge()`
+- **Modified:** `internal/config/load.go` — uses `jsonmerge.Merge()` instead of `jsons.Merge()`
+- **Removed:** `github.com/qjebbs/go-jsons` from go.mod/go.sum
+
+The custom implementation provides deterministic, well-tested JSON merging without the unpredictability of an alpha library.
+
+### Enhanced error logging
+
+- **Modified:** `internal/agent/coordinator.go` — retry logs now include `session_id` for tracking
+- **Modified:** `internal/agent/coordinator.go` — merge error logs include all input JSON for debugging
+- **Modified:** `internal/config/load.go` — merge error logs include input count
+- **Modified:** `internal/jsonmerge/jsonmerge.go` — parse errors include input index
 
 ## Where It Could Grow (If Needed)
 

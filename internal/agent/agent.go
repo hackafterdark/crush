@@ -423,16 +423,6 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			// Use latest tools (updated by SetTools when MCP tools change).
 			prepared.Tools = a.tools.Copy()
 
-			queuedCalls, _ := a.messageQueue.Get(call.SessionID)
-			a.messageQueue.Del(call.SessionID)
-			for _, queued := range queuedCalls {
-				userMessage, createErr := a.createUserMessage(callContext, queued)
-				if createErr != nil {
-					return callContext, prepared, createErr
-				}
-				prepared.Messages = append(prepared.Messages, userMessage.ToAIMessage()...)
-			}
-
 			prepared.Messages = a.workaroundProviderMediaLimitations(prepared.Messages, largeModel)
 
 			lastSystemRoleInx := 0
@@ -628,6 +618,9 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			func(steps []fantasy.StepResult) bool {
 				return hasRepeatedToolCalls(steps, loopDetectionWindowSize, loopDetectionMaxRepeats)
 			},
+			func(steps []fantasy.StepResult) bool {
+				return hasRepeatedThinking(steps)
+			},
 		},
 	})
 
@@ -786,6 +779,17 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	// would belong to the outer turn.
 	skipRunComplete = true
 	firstQueuedMessage := queuedMessages[0]
+	// Create all queued user messages in the DB so the recursive call's
+	// getSessionMessages / preparePrompt picks them up as part of the
+	// conversation history.  This avoids the old bug where PrepareStep
+	// appended queued messages to the API history *and* the recursive call
+	// re-fetched them from the DB, sending duplicates each turn.
+	for _, queued := range queuedMessages {
+		_, err := a.createUserMessage(ctx, queued)
+		if err != nil {
+			slog.Error("Failed to create queued user message", "error", err)
+		}
+	}
 	a.messageQueue.Set(call.SessionID, queuedMessages[1:])
 	return a.Run(ctx, firstQueuedMessage)
 }
@@ -961,6 +965,24 @@ func (a *sessionAgent) createUserMessage(ctx context.Context, call SessionAgentC
 		attachmentParts = append(attachmentParts, message.BinaryContent{Path: attachment.FilePath, MIMEType: attachment.MimeType, Data: attachment.Content})
 	}
 	parts = append(parts, attachmentParts...)
+
+	// Idempotency: if a user message with the same text content already
+	// exists in the session, return it instead of creating a duplicate.
+	// This can happen when queued messages are persisted before a recursive
+	// Run() call, and that recursive call also tries to create the message.
+	msgs, err := a.messages.List(ctx, call.SessionID)
+	if err == nil {
+		for _, m := range msgs {
+			if m.Role == message.User {
+				for _, p := range m.Parts {
+					if tc, ok := p.(message.TextContent); ok && tc.Text == call.Prompt {
+						return m, nil
+					}
+				}
+			}
+		}
+	}
+
 	msg, err := a.messages.Create(ctx, call.SessionID, message.CreateMessageParams{
 		Role:  message.User,
 		Parts: parts,
@@ -1063,6 +1085,14 @@ If not, please feel free to ignore. Again do not mention this message to the use
 		}
 	}
 
+	// Deduplicate reasoning content from consecutive assistant messages.
+	// When the model gets stuck in a thinking loop, the same reasoning text
+	// can appear in multiple consecutive assistant messages. Sending all of
+	// them to the API wastes context window and can cause the model to
+	// double down on the loop. We keep the first occurrence and strip
+	// duplicates from subsequent messages.
+	history = a.deduplicateReasoning(history)
+
 	var files []fantasy.FilePart
 	for _, attachment := range attachments {
 		if attachment.IsText() {
@@ -1076,6 +1106,46 @@ If not, please feel free to ignore. Again do not mention this message to the use
 	}
 
 	return history, files
+}
+
+// deduplicateReasoning removes duplicated reasoning content from consecutive
+// assistant messages. When the model gets stuck in a thinking loop, the same
+// reasoning text can appear in multiple consecutive assistant messages.
+// Sending all of them to the API wastes context window and can cause the
+// model to double down on the loop.
+//
+// This function keeps the first occurrence of each reasoning block and strips
+// duplicates from subsequent assistant messages.
+func (a *sessionAgent) deduplicateReasoning(messages []fantasy.Message) []fantasy.Message {
+	// Track the last seen reasoning text across assistant messages.
+	var lastReasoning string
+
+	for i := range messages {
+		if messages[i].Role != fantasy.MessageRoleAssistant {
+			// Non-assistant message breaks the chain.
+			lastReasoning = ""
+			continue
+		}
+
+		// Build a new content slice without duplicated reasoning.
+		var kept []fantasy.MessagePart
+		for _, part := range messages[i].Content {
+			if rp, ok := fantasy.AsMessagePart[fantasy.ReasoningPart](part); ok {
+				// Skip reasoning that matches the last seen.
+				if rp.Text == lastReasoning && lastReasoning != "" {
+					continue
+				}
+				// Update the last seen reasoning text.
+				if rp.Text != "" {
+					lastReasoning = rp.Text
+				}
+			}
+			kept = append(kept, part)
+		}
+		messages[i].Content = kept
+	}
+
+	return messages
 }
 
 // filterFileParts removes fantasy.FilePart entries from a slice of message

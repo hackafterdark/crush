@@ -1500,6 +1500,10 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 			return nil
 		})
 		m.dialog.CloseDialog(dialog.CommandsID)
+	case dialog.ActionClearPrompt:
+		m.textarea.Reset()
+		m.attachments.Reset()
+		m.dialog.CloseDialog(dialog.CommandsID)
 	case dialog.ActionToggleHelp:
 		m.status.ToggleHelp()
 		m.dialog.CloseDialog(dialog.CommandsID)
@@ -2189,6 +2193,9 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				if cmd != nil {
 					cmds = append(cmds, cmd)
 				}
+			case key.Matches(msg, m.keyMap.Editor.ClearPrompt):
+				m.textarea.Reset()
+				m.attachments.Reset()
 			case key.Matches(msg, m.keyMap.Editor.Commands) && m.textarea.Value() == "":
 				if cmd := m.openCommandsDialog(); cmd != nil {
 					cmds = append(cmds, cmd)
@@ -2553,7 +2560,7 @@ func (m *UI) ShortHelp() []key.Binding {
 			binds,
 			tab,
 			commands,
-			k.Models,
+			k.ToggleYolo,
 		)
 
 		switch m.focus {
@@ -2582,7 +2589,6 @@ func (m *UI) ShortHelp() []key.Binding {
 		binds = append(
 			binds,
 			commands,
-			k.Models,
 			k.Editor.Newline,
 		)
 	}
@@ -2639,7 +2645,6 @@ func (m *UI) FullHelp() [][]key.Binding {
 			mainBinds,
 			tab,
 			commands,
-			k.Models,
 			k.Sessions,
 			k.ToggleYolo,
 		)
@@ -2733,6 +2738,8 @@ func (m *UI) FullHelp() [][]key.Binding {
 		[]key.Binding{
 			help,
 			k.Quit,
+			k.Models,
+			k.Editor.ClearPrompt,
 		},
 	)
 

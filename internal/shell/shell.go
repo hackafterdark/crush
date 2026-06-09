@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -212,6 +213,41 @@ func ArgumentsBlocker(cmd string, args []string, flags []string) BlockFunc {
 		flagsMatch := slice.IsSubset(flags, flagParts)
 
 		return argsMatch && flagsMatch
+	}
+}
+
+// SelfExecBlocker blocks commands that would cause Crush to spawn itself,
+// which would hijack the TUI and leave the user unable to interact.
+func SelfExecBlocker() BlockFunc {
+	return func(args []string) bool {
+		if len(args) == 0 {
+			return false
+		}
+		cmd := args[0]
+
+		// Direct execution of the crush binary (./crush, ./crush.exe, crush)
+		base := filepath.Base(cmd)
+		if strings.EqualFold(base, "crush") {
+			return true
+		}
+
+		// go run . — runs the current directory as a Go program (crush)
+		if cmd == "go" && len(args) >= 3 && args[1] == "run" && args[2] == "." {
+			return true
+		}
+
+		// go build . — builds the current directory (crush binary)
+		if cmd == "go" && len(args) >= 3 && args[1] == "build" && args[2] == "." {
+			return true
+		}
+
+		// go build -o crush — builds with output name matching crush
+		if cmd == "go" && len(args) >= 4 && args[1] == "build" && args[2] == "-o" &&
+			strings.EqualFold(args[3], "crush") {
+			return true
+		}
+
+		return false
 	}
 }
 

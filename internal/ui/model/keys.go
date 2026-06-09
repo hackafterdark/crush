@@ -21,6 +21,9 @@ type KeyMap struct {
 		// History navigation
 		HistoryPrev key.Binding
 		HistoryNext key.Binding
+
+		// Clear prompt
+		ClearPrompt key.Binding
 	}
 
 	Chat struct {
@@ -156,7 +159,10 @@ func DefaultKeyMap() KeyMap {
 	km.Editor.HistoryNext = key.NewBinding(
 		key.WithKeys("down"),
 	)
-
+	km.Editor.ClearPrompt = key.NewBinding(
+		key.WithKeys("ctrl+x"),
+		key.WithHelp("ctrl+x", "clear prompt"),
+	)
 	km.Chat.NewSession = key.NewBinding(
 		key.WithKeys("ctrl+n"),
 		key.WithHelp("ctrl+n", "new session"),

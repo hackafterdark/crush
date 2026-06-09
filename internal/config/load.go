@@ -24,8 +24,8 @@ import (
 	"github.com/charmbracelet/crush/internal/filepathext"
 	"github.com/charmbracelet/crush/internal/fsext"
 	"github.com/charmbracelet/crush/internal/home"
+	"github.com/charmbracelet/crush/internal/jsonmerge"
 	powernapConfig "github.com/charmbracelet/x/powernap/pkg/config"
-	"github.com/qjebbs/go-jsons"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -777,8 +777,9 @@ func loadFromBytes(configs [][]byte) (*Config, error) {
 		return &Config{}, nil
 	}
 
-	data, err := jsons.Merge(configs)
+	data, err := jsonmerge.Merge(configs...)
 	if err != nil {
+		slog.Error("Could not merge config", "err", err, "input_count", len(configs))
 		return nil, err
 	}
 	var config Config

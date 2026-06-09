@@ -47,16 +47,28 @@ func (m *UI) modelInfo(width int) string {
 		if tokens == 0 {
 			tokens = m.session.PromptTokens + m.session.CompletionTokens
 		}
+		contextWindow := model.CatwalkCfg.ContextWindow
+		// Fall back to config lookup when the coordinator's model
+		// has a zero context window (e.g. provider model list not
+		// populated by catwalk scripts).
+		if contextWindow == 0 {
+			if cfgModel := m.com.Config().GetModel(model.ModelCfg.Provider, model.ModelCfg.Model); cfgModel != nil {
+				contextWindow = cfgModel.ContextWindow
+			}
+		}
 		modelContext = &common.ModelContextInfo{
 			ContextUsed:    tokens,
 			Cost:           m.session.Cost,
-			ModelContext:   model.CatwalkCfg.ContextWindow,
+			ModelContext:   model.CatwalkCfg.ContextWindow, // contextWindow,
 			EstimatedUsage: m.session.EstimatedUsage,
 		}
 	}
 	var modelName string
 	if model != nil {
 		modelName = model.CatwalkCfg.Name
+		if modelName == "" {
+			modelName = model.ModelCfg.Model
+		}
 	}
 	return common.ModelInfo(m.com.Styles, modelName, providerName, reasoningInfo, modelContext, width, m.hyperCredits)
 }

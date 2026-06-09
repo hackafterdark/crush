@@ -1,13 +1,11 @@
 package agent
 
 import (
-	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -47,7 +45,7 @@ import (
 	"charm.land/fantasy/providers/openrouter"
 	"charm.land/fantasy/providers/vercel"
 	openaisdk "github.com/charmbracelet/openai-go/option"
-	"github.com/qjebbs/go-jsons"
+	"github.com/charmbracelet/crush/internal/jsonmerge"
 )
 
 // Coordinator errors.
@@ -276,7 +274,7 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 		// Retry once on Bad Request — vLLM's tool call parser can produce
 		// malformed output that triggers context overflow. The model often
 		// produces valid output on the second attempt.
-		slog.Warn("Bad Request from provider, retrying once", "error", originalErr)
+		slog.Warn("Bad Request from provider, retrying once", "error", originalErr, "session_id", sessionID)
 		result, originalErr = run()
 		if c.isBadRequest(originalErr) {
 			// Second fallback: the sanitized tool call input is still
@@ -285,7 +283,7 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 			// from the stripped context on the third attempt.
 			// Use a fresh background context so a user-initiated cancel
 			// (Escape key) does not cause this attempt to fail instantly.
-			slog.Warn("Bad Request persists after first retry, stripping last tool call and retrying", "error", originalErr)
+			slog.Warn("Bad Request persists after first retry, stripping last tool call and retrying", "error", originalErr, "session_id", sessionID)
 			result, originalErr = c.runWithStrippedLastToolCall(context.Background(), sessionID, SessionAgentCall{
 				SessionID:        sessionID,
 				RunID:            runID,
@@ -305,7 +303,7 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 			// misconfiguration, invalid parameters) and retrying would
 			// only create an infinite loop.
 			if c.isBadRequest(originalErr) {
-				slog.Error("Bad Request recovery failed after 3 attempts; not retrying further", "error", originalErr)
+				slog.Error("Bad Request recovery failed after 3 attempts; not retrying further", "error", originalErr, "session_id", sessionID)
 			}
 		}
 	}
@@ -352,23 +350,15 @@ func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.
 		}
 	}
 
-	readers := []io.Reader{
-		bytes.NewReader(catwalkOpts),
-		bytes.NewReader(providerCfgOpts),
-		bytes.NewReader(cfgOpts),
-	}
-
-	got, err := jsons.Merge(readers)
+	mergedJSON, err := jsonmerge.Merge(catwalkOpts, providerCfgOpts, cfgOpts)
 	if err != nil {
-		slog.Error("Could not merge call config", "err", err)
+		slog.Error("Could not merge call config", "err", err, "catwalk_opts", string(catwalkOpts), "provider_opts", string(providerCfgOpts), "model_opts", string(cfgOpts))
 		return options
 	}
 
-	mergedOptions := make(map[string]any)
-
-	err = json.Unmarshal([]byte(got), &mergedOptions)
-	if err != nil {
-		slog.Error("Could not create config for call", "err", err)
+	var mergedOptions map[string]any
+	if err := json.Unmarshal(mergedJSON, &mergedOptions); err != nil {
+		slog.Error("Could not unmarshal merged config", "err", err)
 		return options
 	}
 
@@ -1163,10 +1153,13 @@ func (c *coordinator) isBadRequest(err error) bool {
 	return strings.Contains(msg, "tool") ||
 		strings.Contains(msg, "malformed") ||
 		strings.Contains(msg, "invalid json") ||
+		strings.Contains(msg, "extra data") ||
 		strings.Contains(msg, "context overflow") ||
 		strings.Contains(msg, "max context") ||
 		strings.Contains(msg, "too long") ||
-		strings.Contains(msg, "overflow")
+		strings.Contains(msg, "overflow") ||
+		strings.Contains(msg, "extra data") ||
+		strings.Contains(msg, "parse error")
 }
 
 // runWithStrippedLastToolCall retries the agent run with the last assistant
