@@ -2040,9 +2040,18 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 		return m.handleDialogMsg(msg)
 	}
 
-	// Handle cancel key when agent is busy.
+	// Handle cancel key when agent is busy. Always check before state-specific
+	// handlers so Escape can interrupt even when the editor has focus.
 	if key.Matches(msg, m.keyMap.Chat.Cancel) {
 		if m.isAgentBusy() {
+			if cmd := m.cancelAgent(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			return tea.Batch(cmds...)
+		}
+		// If agent is not busy but we're already canceling (stale state),
+		// force a cancel anyway — the agent may be stuck.
+		if m.isCanceling {
 			if cmd := m.cancelAgent(); cmd != nil {
 				cmds = append(cmds, cmd)
 			}
@@ -3526,14 +3535,14 @@ func (m *UI) cancelAgent() tea.Cmd {
 		return nil
 	}
 
-	if !m.com.Workspace.AgentIsReady() {
-		return nil
-	}
-
 	if m.isCanceling {
 		// Second escape press - actually cancel the agent.
 		m.isCanceling = false
-		m.com.Workspace.AgentCancel(m.session.ID)
+		// Always attempt cancel even if agent appears ready — it may be
+		// stuck in a loop and not reporting correctly.
+		if m.com.Workspace.AgentIsReady() {
+			m.com.Workspace.AgentCancel(m.session.ID)
+		}
 		// Stop the spinning todo indicator.
 		m.todoIsSpinning = false
 		m.renderPills()

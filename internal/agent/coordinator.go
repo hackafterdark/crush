@@ -272,6 +272,42 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 		if err := c.retryAfterUnauthorized(ctx, providerCfg); err == nil {
 			result, originalErr = run()
 		}
+	} else if c.isBadRequest(originalErr) {
+		// Retry once on Bad Request — vLLM's tool call parser can produce
+		// malformed output that triggers context overflow. The model often
+		// produces valid output on the second attempt.
+		slog.Warn("Bad Request from provider, retrying once", "error", originalErr)
+		result, originalErr = run()
+		if c.isBadRequest(originalErr) {
+			// Second fallback: the sanitized tool call input is still
+			// malformed (e.g. unquoted keys, trailing commas). Strip the
+			// last assistant tool call and retry — the model can recover
+			// from the stripped context on the third attempt.
+			// Use a fresh background context so a user-initiated cancel
+			// (Escape key) does not cause this attempt to fail instantly.
+			slog.Warn("Bad Request persists after first retry, stripping last tool call and retrying", "error", originalErr)
+			result, originalErr = c.runWithStrippedLastToolCall(context.Background(), sessionID, SessionAgentCall{
+				SessionID:        sessionID,
+				RunID:            runID,
+				Prompt:           prompt,
+				Attachments:      attachments,
+				MaxOutputTokens:  maxTokens,
+				ProviderOptions:  mergedOptions,
+				Temperature:      temp,
+				TopP:             topP,
+				TopK:             topK,
+				FrequencyPenalty: freqPenalty,
+				PresencePenalty:  presPenalty,
+				OnComplete:       onComplete,
+			})
+			// If the third attempt also fails with 400, do NOT retry
+			// further. The error is permanent (e.g. model
+			// misconfiguration, invalid parameters) and retrying would
+			// only create an infinite loop.
+			if c.isBadRequest(originalErr) {
+				slog.Error("Bad Request recovery failed after 3 attempts; not retrying further", "error", originalErr)
+			}
+		}
 	}
 
 	if originalErr == nil {
@@ -498,6 +534,7 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 		SystemPrompt:         "",
 		IsSubAgent:           isSubAgent,
 		DisableAutoSummarize: c.cfg.Config().Options.DisableAutoSummarize,
+		SummarizeThreshold:   c.cfg.Config().Options.SummarizeThreshold,
 		IsYolo:               c.permissions.SkipRequests(),
 		Sessions:             c.sessions,
 		Messages:             c.messages,
@@ -1112,6 +1149,33 @@ func (c *coordinator) retryAfterUnauthorized(ctx context.Context, providerCfg co
 func (c *coordinator) isUnauthorized(err error) bool {
 	var providerErr *fantasy.ProviderError
 	return errors.As(err, &providerErr) && providerErr.StatusCode == http.StatusUnauthorized
+}
+
+func (c *coordinator) isBadRequest(err error) bool {
+	var providerErr *fantasy.ProviderError
+	if !errors.As(err, &providerErr) || providerErr.StatusCode != http.StatusBadRequest {
+		return false
+	}
+	// Only retry on known recoverable 400 errors. Some 400s are permanent
+	// (model not found, invalid parameters) and retrying would create an
+	// infinite loop.
+	msg := strings.ToLower(providerErr.Message)
+	return strings.Contains(msg, "tool") ||
+		strings.Contains(msg, "malformed") ||
+		strings.Contains(msg, "invalid json") ||
+		strings.Contains(msg, "context overflow") ||
+		strings.Contains(msg, "max context") ||
+		strings.Contains(msg, "too long") ||
+		strings.Contains(msg, "overflow")
+}
+
+// runWithStrippedLastToolCall retries the agent run with the last assistant
+// tool call stripped from the conversation history. This is used as a
+// fallback when the stored tool call input is malformed JSON and causes a
+// persistent 400 Bad Request.
+func (c *coordinator) runWithStrippedLastToolCall(ctx context.Context, sessionID string, call SessionAgentCall) (*fantasy.AgentResult, error) {
+	stripCtx := WithStripLastToolCall(ctx)
+	return c.currentAgent.Run(stripCtx, call)
 }
 
 func (c *coordinator) refreshOAuth2Token(ctx context.Context, providerCfg config.ProviderConfig) error {

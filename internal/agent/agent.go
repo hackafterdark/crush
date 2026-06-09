@@ -12,6 +12,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -49,11 +50,6 @@ import (
 
 const (
 	DefaultSessionName = "Untitled Session"
-
-	// Constants for auto-summarization thresholds
-	largeContextWindowThreshold = 200_000
-	largeContextWindowBuffer    = 20_000
-	smallContextWindowRatio     = 0.2
 )
 
 var userAgent = fmt.Sprintf("Charm-Crush/%s (https://charm.land/crush)", version.Version)
@@ -140,6 +136,7 @@ type sessionAgent struct {
 	sessions             session.Service
 	messages             message.Service
 	disableAutoSummarize bool
+	summarizeThreshold   float64
 	isYolo               bool
 	notify               pubsub.Publisher[notify.Notification]
 	runComplete          pubsub.Publisher[notify.RunComplete]
@@ -155,6 +152,7 @@ type SessionAgentOptions struct {
 	SystemPrompt         string
 	IsSubAgent           bool
 	DisableAutoSummarize bool
+	SummarizeThreshold   float64
 	IsYolo               bool
 	Sessions             session.Service
 	Messages             message.Service
@@ -175,6 +173,7 @@ func NewSessionAgent(
 		sessions:             opts.Sessions,
 		messages:             opts.Messages,
 		disableAutoSummarize: opts.DisableAutoSummarize,
+		summarizeThreshold:   opts.SummarizeThreshold,
 		tools:                csync.NewSliceFrom(opts.Tools),
 		isYolo:               opts.IsYolo,
 		notify:               opts.Notify,
@@ -255,6 +254,34 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		return nil, fmt.Errorf("failed to get session messages: %w", err)
 	}
 
+	// Estimate the current context window usage from the active messages.
+	// This is used for display and auto-summarization threshold checks.
+	currentTokens := estimateMessageTokensForMessage(msgs)
+	if currentSession.CurrentTokens != currentTokens {
+		currentSession.CurrentTokens = currentTokens
+		if _, saveErr := a.sessions.Save(ctx, currentSession); saveErr != nil {
+			slog.Warn("Failed to save current tokens", "error", saveErr)
+		}
+	}
+
+	// Check if we need to auto-summarize before sending the request.
+	// This prevents context overflow when a large prompt pushes us over the limit.
+	if shouldSummarize(currentSession, largeModel, a.summarizeThreshold, a.disableAutoSummarize) {
+		slog.Debug("Auto-summarizing before request to prevent context overflow", "session_id", call.SessionID)
+		if summaryErr := a.Summarize(ctx, call.SessionID, a.getCacheControlOptions()); summaryErr != nil {
+			slog.Warn("Failed to auto-summarize before request", "error", summaryErr)
+		}
+		// After summarization, re-fetch the session and messages.
+		currentSession, err = a.sessions.Get(ctx, call.SessionID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get session after summarization: %w", err)
+		}
+		msgs, err = a.getSessionMessages(ctx, currentSession)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get session messages after summarization: %w", err)
+		}
+	}
+
 	var wg sync.WaitGroup
 	// Generate title if first message.
 	if len(msgs) == 0 {
@@ -269,6 +296,30 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	_, err = a.createUserMessage(ctx, call)
 	if err != nil {
 		return nil, err
+	}
+
+	// Re-estimate total tokens after adding the user message.
+	// If the total would exceed the context window, force summarization.
+	msgs, err = a.getSessionMessages(ctx, currentSession)
+	if err != nil {
+		return nil, err
+	}
+	totalTokens := estimateMessageTokensForMessage(msgs)
+	cw := int64(largeModel.CatwalkCfg.ContextWindow)
+	if cw > 0 && !a.disableAutoSummarize && totalTokens > cw {
+		slog.Warn("Prompt would exceed context window, forcing summarization", "session_id", call.SessionID, "tokens", totalTokens, "window", cw)
+		if summaryErr := a.Summarize(ctx, call.SessionID, a.getCacheControlOptions()); summaryErr != nil {
+			slog.Warn("Failed to force-summarize before overflow", "error", summaryErr)
+		} else {
+			currentSession, err = a.sessions.Get(ctx, call.SessionID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get session after forced summarization: %w", err)
+			}
+			msgs, err = a.getSessionMessages(ctx, currentSession)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get session messages after forced summarization: %w", err)
+			}
+		}
 	}
 
 	// Add the session to the context.
@@ -340,7 +391,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		a.runComplete.PublishMustDeliver(ctx, pubsub.UpdatedEvent, complete)
 	}()
 
-	history, files := a.preparePrompt(msgs, largeModel.CatwalkCfg.SupportsImages, call.Attachments...)
+	history, files := a.preparePrompt(ctx, msgs, largeModel.CatwalkCfg.SupportsImages, call.Attachments...)
 
 	startTime := time.Now()
 	a.eventPromptSent(call.SessionID)
@@ -487,7 +538,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			toolCall := message.ToolCall{
 				ID:               tc.ToolCallID,
 				Name:             tc.ToolName,
-				Input:            tc.Input,
+				Input:            sanitizeJSONInput(tc.Input),
 				ProviderExecuted: false,
 				Finished:         true,
 			}
@@ -540,6 +591,9 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			}
 			usage, estimated := fallbackStepUsage(stepMessages, stepResult)
 			a.updateSessionUsage(largeModel, &updatedSession, usage, a.openrouterCost(stepResult.ProviderMetadata), estimated)
+			// Update CurrentTokens to reflect the actual context window usage
+			// after the response is received (PromptTokens + CompletionTokens).
+			updatedSession.CurrentTokens = updatedSession.PromptTokens + updatedSession.CompletionTokens
 			_, sessionErr := a.sessions.Save(ctx, updatedSession)
 			if sessionErr != nil {
 				return sessionErr
@@ -549,21 +603,23 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		},
 		StopWhen: []fantasy.StopCondition{
 			func(_ []fantasy.StepResult) bool {
+				// Use CurrentTokens for the auto-summarization check.
+				// This reflects the actual context window usage, not cumulative tokens.
+				tokens := currentSession.CurrentTokens
+				if tokens == 0 {
+					// Fallback to cumulative tokens if CurrentTokens hasn't been set yet.
+					tokens = currentSession.CompletionTokens + currentSession.PromptTokens
+				}
 				cw := int64(largeModel.CatwalkCfg.ContextWindow)
-				// If context window is unknown (0), skip auto-summarize
-				// to avoid immediately truncating custom/local models.
+				// If context window is unknown (0), skip auto-summarize.
 				if cw == 0 {
 					return false
 				}
-				tokens := currentSession.CompletionTokens + currentSession.PromptTokens
-				remaining := cw - tokens
-				var threshold int64
-				if cw > largeContextWindowThreshold {
-					threshold = largeContextWindowBuffer
-				} else {
-					threshold = int64(float64(cw) * smallContextWindowRatio)
+				if a.summarizeThreshold <= 0 {
+					a.summarizeThreshold = 0.8 // Default 80%
 				}
-				if (remaining <= threshold) && !a.disableAutoSummarize {
+				fraction := float64(tokens) / float64(cw)
+				if fraction >= a.summarizeThreshold && !a.disableAutoSummarize {
 					shouldSummarize = true
 					return true
 				}
@@ -756,7 +812,7 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fan
 		return nil
 	}
 
-	aiMsgs, _ := a.preparePrompt(msgs, largeModel.CatwalkCfg.SupportsImages)
+	aiMsgs, _ := a.preparePrompt(ctx, msgs, largeModel.CatwalkCfg.SupportsImages)
 
 	genCtx, cancel := context.WithCancel(ctx)
 	a.activeRequests.Set(sessionID, cancel)
@@ -857,6 +913,9 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fan
 	currentSession.CompletionTokens = summaryCompletionTokens(usage, summaryMessage)
 	currentSession.PromptTokens = 0
 	currentSession.EstimatedUsage = usageIsZero(usage)
+	// After summarization, set CurrentTokens to the truncated context size.
+	// We estimate from the summary message content.
+	currentSession.CurrentTokens = currentSession.CompletionTokens + approxTokenCount(summaryMessage.Content().Text)
 	_, err = a.sessions.Save(genCtx, currentSession)
 	if err != nil {
 		return err
@@ -912,7 +971,25 @@ func (a *sessionAgent) createUserMessage(ctx context.Context, call SessionAgentC
 	return msg, nil
 }
 
-func (a *sessionAgent) preparePrompt(msgs []message.Message, supportsImages bool, attachments ...message.Attachment) ([]fantasy.Message, []fantasy.FilePart) {
+func (a *sessionAgent) preparePrompt(ctx context.Context, msgs []message.Message, supportsImages bool, attachments ...message.Attachment) ([]fantasy.Message, []fantasy.FilePart) {
+	// When the strip-last-tool-call flag is set (used as a 400 Bad Request
+	// recovery path), identify the last assistant message with tool calls
+	// so we can skip its tool call parts.
+	var skipLastToolCallID string
+	if IsStripLastToolCall(ctx) {
+		for i := len(msgs) - 1; i >= 0; i-- {
+			if msgs[i].Role == message.Assistant && len(msgs[i].ToolCalls()) > 0 {
+				skipLastToolCallID = msgs[i].ToolCalls()[len(msgs[i].ToolCalls())-1].ID
+				slog.Info("Stripping last tool call from conversation history (400 Bad Request recovery)",
+					"tool_call_id", skipLastToolCallID,
+					"tool_name", msgs[i].ToolCalls()[len(msgs[i].ToolCalls())-1].Name,
+					"session_id", msgs[i].SessionID,
+				)
+				break
+			}
+		}
+	}
+
 	var history []fantasy.Message
 	if !a.isSubAgent {
 		history = append(history, fantasy.NewUserMessage(
@@ -958,6 +1035,18 @@ If not, please feel free to ignore. Again do not mention this message to the use
 			continue
 		}
 		aiMsgs := m.ToAIMessage()
+		// When recovering from a persistent 400 Bad Request, skip the
+		// last assistant tool call whose input is malformed JSON.
+		if skipLastToolCallID != "" {
+			for i := range aiMsgs {
+				for j := range aiMsgs[i].Content {
+					if tc, ok := fantasy.AsMessagePart[fantasy.ToolCallPart](aiMsgs[i].Content[j]); ok && tc.ToolCallID == skipLastToolCallID {
+						aiMsgs[i].Content = append(aiMsgs[i].Content[:j], aiMsgs[i].Content[j+1:]...)
+						break
+					}
+				}
+			}
+		}
 		if !supportsImages {
 			for i := range aiMsgs {
 				if aiMsgs[i].Role == fantasy.MessageRoleUser {
@@ -1426,7 +1515,56 @@ func (a *sessionAgent) convertToToolResult(result fantasy.ToolResultContent) mes
 	return baseResult
 }
 
-// workaroundProviderMediaLimitations converts media content in tool results to
+// sanitizeJSONInput strips extra characters after the closing brace/bracket of a JSON
+// object or array. vLLM's tool call parser (especially with --tool-call-parser qwen3_xml)
+// can produce malformed output like `{"key": "value"} }` or `{"key": "value"}
+// extra text`. This function extracts only the valid JSON prefix so the model
+// can parse it on the next turn without triggering a 400 Bad Request.
+// The result is validated as parseable JSON; if it isn't, the original string
+// is returned unchanged (the caller's retry logic will handle it).
+func sanitizeJSONInput(s string) string {
+	if s == "" {
+		return s
+	}
+	// Find the last closing brace/bracket that completes a valid JSON
+	// object or array.
+	// We scan for the first `}` or `]` that balances all opening braces/brackets.
+	depth := 0
+	inString := false
+	escape := false
+	for i, r := range s {
+		switch {
+		case escape:
+			escape = false
+		case r == '\\':
+			escape = true
+		case r == '"':
+			inString = !inString
+		case !inString:
+			switch r {
+			case '{', '[':
+				depth++
+			case '}', ']':
+				depth--
+				if depth == 0 {
+					// Found the matching close brace/bracket — validate
+					// the result is actually parseable JSON.
+					candidate := s[:i+1]
+					if json.Valid([]byte(candidate)) {
+						return candidate
+					}
+					// Sanitized output is not valid JSON; fall through
+					// and return a minimal valid object so the retry
+					// doesn't waste a turn sending the same bad data.
+				}
+			}
+		}
+	}
+	// Could not find valid JSON — return a minimal valid object so the
+	// provider accepts the retry and the model can recover without needing
+	// the strip fallback.
+	return "{}"
+}
 // user messages for providers that don't natively support images in tool results.
 //
 // Problem: OpenAI, Google, OpenRouter, and other OpenAI-compatible providers
@@ -1546,4 +1684,81 @@ func providerRetryLogFields(err *fantasy.ProviderError, delay time.Duration) []a
 		fields = append(fields, "message", err.Message)
 	}
 	return fields
+}
+
+// shouldSummarize returns true if the session should be auto-summarized
+// based on the current context window usage and the configured threshold.
+func shouldSummarize(session session.Session, model Model, threshold float64, disabled bool) bool {
+	if disabled {
+		return false
+	}
+	cw := int64(model.CatwalkCfg.ContextWindow)
+	if cw == 0 {
+		return false
+	}
+	tokens := session.CurrentTokens
+	if tokens == 0 {
+		// Fallback to cumulative tokens if CurrentTokens hasn't been set yet.
+		tokens = session.CompletionTokens + session.PromptTokens
+	}
+	if threshold <= 0 {
+		threshold = 0.8 // Default 80%
+	}
+	fraction := float64(tokens) / float64(cw)
+	return fraction >= threshold
+}
+
+// estimateMessageTokensForMessage estimates the token count for a list of
+// message.Message (not fantasy.Message). It uses the same approximation as the
+// fallback token counter.
+func estimateMessageTokensForMessage(msgs []message.Message) int64 {
+	var tokens int64
+	for _, m := range msgs {
+		tokens += approxTokenCount(string(m.Role))
+		for _, part := range m.Parts {
+			tokens += estimateMessagePartTokensForMessage(part)
+		}
+	}
+	return tokens
+}
+
+// estimateMessagePartTokensForMessage estimates the token count for a message
+// content part (message package types).
+func estimateMessagePartTokensForMessage(part message.ContentPart) int64 {
+	switch p := part.(type) {
+	case message.TextContent:
+		return approxTokenCount(p.Text)
+	case *message.TextContent:
+		return approxTokenCount(p.Text)
+	case message.ReasoningContent:
+		return approxTokenCount(p.String())
+	case *message.ReasoningContent:
+		return approxTokenCount(p.String())
+	case message.BinaryContent:
+		return estimateMediaTokensForMessage(p.MIMEType, "", len(p.Data))
+	case *message.BinaryContent:
+		return estimateMediaTokensForMessage(p.MIMEType, "", len(p.Data))
+	case message.ToolCall:
+		return approxTokenCount(p.ID) + approxTokenCount(p.Name) + approxTokenCount(p.Input)
+	case *message.ToolCall:
+		return approxTokenCount(p.ID) + approxTokenCount(p.Name) + approxTokenCount(p.Input)
+	case message.ToolResult:
+		return approxTokenCount(p.ToolCallID) + approxTokenCount(p.Name) + approxTokenCount(p.Content)
+	case *message.ToolResult:
+		return approxTokenCount(p.ToolCallID) + approxTokenCount(p.Name) + approxTokenCount(p.Content)
+	case message.Finish:
+		return 0
+	case *message.Finish:
+		return 0
+	default:
+		return 0
+	}
+}
+
+// estimateMediaTokensForMessage estimates the token count for media content.
+func estimateMediaTokensForMessage(mediaType, text string, dataBytes int) int64 {
+	if dataBytes == 0 {
+		return approxTokenCount(mediaType) + approxTokenCount(text)
+	}
+	return approxTokenCount(fmt.Sprintf("%s %s %d bytes", mediaType, text, dataBytes))
 }

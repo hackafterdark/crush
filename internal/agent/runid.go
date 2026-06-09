@@ -11,6 +11,26 @@ import "context"
 // originating caller.
 type runIDContextKey struct{}
 
+// stripLastToolCallContextKey is an unexported context key that signals
+// the agent to skip the last assistant tool call when building the
+// conversation history. Used as a fallback when the stored tool call
+// input is malformed and causes a persistent 400 Bad Request.
+type stripLastToolCallContextKey struct{}
+
+// WithStripLastToolCall returns ctx tagged so the agent skips the last
+// assistant tool call. Used as a recovery path for malformed JSON in
+// stored tool call inputs.
+func WithStripLastToolCall(ctx context.Context) context.Context {
+	return context.WithValue(ctx, stripLastToolCallContextKey{}, true)
+}
+
+// IsStripLastToolCall returns true if the context requests stripping
+// the last assistant tool call.
+func IsStripLastToolCall(ctx context.Context) bool {
+	_, ok := ctx.Value(stripLastToolCallContextKey{}).(bool)
+	return ok
+}
+
 // WithRunID returns ctx tagged with a per-request RunID. It is the
 // boundary helper for callers that need their SendMessage→Run
 // terminal event to be uniquely correlatable (e.g. `crush run`

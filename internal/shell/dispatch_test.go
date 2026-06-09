@@ -305,9 +305,13 @@ func TestDispatch_DirectoryNotFile(t *testing.T) {
 	}
 }
 
-// TestDispatch_BashShebang runs a #!/bin/bash script via os/exec. Skipped
-// if bash isn't available (rare in CI, but keep the test robust).
+// TestDispatch_BashShebang runs a script with a shebang via os/exec.
+// Skipped on Windows where shebang execution semantics differ (cmd.exe
+// doesn't read script files like bash).
 func TestDispatch_BashShebang(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shebang execution semantics differ on Windows")
+	}
 	bash, err := exec.LookPath("bash")
 	if err != nil {
 		t.Skipf("bash not in PATH: %v", err)
@@ -335,6 +339,9 @@ func TestDispatch_BashShebang(t *testing.T) {
 // TestDispatch_ShebangPassesExitCode maps interpreter exit codes through to
 // interp.ExitStatus so the caller can inspect them with ExitCode.
 func TestDispatch_ShebangPassesExitCode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shebang execution semantics differ on Windows")
+	}
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skipf("bash not in PATH: %v", err)
 	}
