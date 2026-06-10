@@ -217,6 +217,27 @@ type ViewResponseMetadata struct {
 
 const WriteToolName = "write"
 
+// AppendToolName is the name of the append tool.
+const AppendToolName = tools.AppendToolName
+
+// AppendParams represents the parameters for the append tool.
+type AppendParams struct {
+	FilePath string `json:"file_path"`
+	Content  string `json:"content"`
+}
+
+// AppendPermissionsParams represents the permission parameters for the append tool.
+type AppendPermissionsParams = tools.AppendPermissionsParams
+
+// AppendResponseMetadata represents the metadata for an append tool response.
+type AppendResponseMetadata struct {
+	Diff      string `json:"diff"`
+	Additions int    `json:"additions"`
+	Removals  int    `json:"removals"`
+	OldSize   int    `json:"old_size"`
+	NewSize   int    `json:"new_size"`
+}
+
 // WriteParams represents the parameters for the write tool.
 type WriteParams struct {
 	FilePath string `json:"file_path"`

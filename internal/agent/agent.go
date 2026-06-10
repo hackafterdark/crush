@@ -425,6 +425,18 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			// Use latest tools (updated by SetTools when MCP tools change).
 			prepared.Tools = a.tools.Copy()
 
+			// see .agents/docs/fixes/FIX-0004-queued-message-duplication.md
+			// this block was removed as part of that fix, keeping commented out here for historic reference
+			// queuedCalls, _ := a.messageQueue.Get(call.SessionID)
+			// a.messageQueue.Del(call.SessionID)
+			// for _, queued := range queuedCalls {
+			//	userMessage, createErr := a.createUserMessage(callContext, queued)
+			//	if createErr != nil {
+			//		return callContext, prepared, createErr
+			//	}
+			//	prepared.Messages = append(prepared.Messages, userMessage.ToAIMessage()...)
+			// }
+
 			prepared.Messages = a.workaroundProviderMediaLimitations(prepared.Messages, largeModel)
 
 			lastSystemRoleInx := 0

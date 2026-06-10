@@ -167,6 +167,75 @@ func (w *WriteToolRenderContext) RenderTool(sty *styles.Styles, width int, opts 
 }
 
 // -----------------------------------------------------------------------------
+// Append Tool
+// -----------------------------------------------------------------------------
+
+// AppendToolMessageItem is a message item that represents an append tool call.
+type AppendToolMessageItem struct {
+	*baseToolMessageItem
+}
+
+var _ ToolMessageItem = (*AppendToolMessageItem)(nil)
+
+// NewAppendToolMessageItem creates a new [AppendToolMessageItem].
+func NewAppendToolMessageItem(
+	sty *styles.Styles,
+	toolCall message.ToolCall,
+	result *message.ToolResult,
+	canceled bool,
+) ToolMessageItem {
+	return newBaseToolMessageItem(sty, toolCall, result, &AppendToolRenderContext{}, canceled)
+}
+
+// AppendToolRenderContext renders append tool messages.
+type AppendToolRenderContext struct{}
+
+// RenderTool implements the [ToolRenderer] interface.
+func (a *AppendToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *ToolRenderOpts) string {
+	cappedWidth := cappedMessageWidth(width)
+	if opts.IsPending() {
+		return pendingTool(sty, "Append", opts.Anim, opts.Compact)
+	}
+
+	var params tools.AppendParams
+	if err := json.Unmarshal([]byte(opts.ToolCall.Input), &params); err != nil {
+		return toolErrorContent(sty, &message.ToolResult{Content: "Invalid parameters"}, cappedWidth)
+	}
+
+	file := fsext.PrettyPath(params.FilePath)
+	header := toolHeader(sty, opts.Status, "Append", cappedWidth, opts.Compact, file)
+	if opts.Compact {
+		return header
+	}
+
+	if !opts.HasResult() {
+		if earlyState, ok := toolEarlyStateContent(sty, opts, cappedWidth); ok {
+			return joinToolParts(header, earlyState)
+		}
+		return header
+	}
+
+	// On error with diff metadata (e.g. denied permission), show error + diff.
+	if opts.Result.IsError {
+		var meta tools.AppendResponseMetadata
+		if err := json.Unmarshal([]byte(opts.Result.Metadata), &meta); err == nil && meta.Diff != "" {
+			errLine := toolErrorContent(sty, opts.Result, cappedWidth)
+			diff := toolOutputDiffContentFromUnified(sty, meta.Diff, cappedWidth, opts.ExpandedContent)
+			return strings.Join([]string{header, "", errLine, "", diff}, "\n")
+		}
+		return joinToolParts(header, toolErrorContent(sty, opts.Result, cappedWidth))
+	}
+
+	// Render code content with syntax highlighting.
+	if params.Content != "" {
+		body := toolOutputCodeContent(sty, params.FilePath, params.Content, 0, cappedWidth, opts.ExpandedContent)
+		return joinToolParts(header, body)
+	}
+
+	return header
+}
+
+// -----------------------------------------------------------------------------
 // Edit Tool
 // -----------------------------------------------------------------------------
 

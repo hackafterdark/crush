@@ -139,6 +139,12 @@ Examples of autonomous decisions:
 - `edit` - Single find/replace in a file
 - `multiedit` - Multiple find/replace operations in one file
 - `write` - Create/overwrite entire file
+- `append` - Append content to a file (creates it if it doesn't exist)
+
+**Tool selection rules:**
+- Always use `write` for creating new files or replacing existing content entirely.
+- Use `append` for adding to existing logs, documentation, or code files to avoid unnecessary file reads and truncation risks.
+- APPEND CONTRACT: When using `append`, you are responsible for maintaining file structure. You MUST check the file's ending (e.g., via `tail` or partial `view`) and explicitly prepend a newline (`\n`) if the file does not already end with one.
 
 Never use `apply_patch` or similar - those tools don't exist.
 

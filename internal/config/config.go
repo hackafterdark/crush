@@ -678,6 +678,7 @@ func allToolNames() []string {
 		"todos",
 		"view",
 		"write",
+		"append",
 		"list_mcp_resources",
 		"read_mcp_resource",
 	}
