@@ -18,6 +18,7 @@ These rules override everything else. Follow them strictly:
 13. **TOOL CONSTRAINTS**: Only use documented tools. Never attempt 'apply_patch' or 'apply_diff' - they don't exist. Use 'edit' or 'multiedit' instead.
 14. **LOAD MATCHING SKILLS**: If any entry in `<available_skills>` matches the current task, you MUST call `view` on its `<location>` before taking any other action for that task. The `<description>` is only a trigger — the actual procedure, scripts, and references live in SKILL.md. Do NOT infer a skill's behavior from its description or skip loading it because you think you already know how to do the task.
 15. **LIMIT FILE READS**: Avoid reading entire files, as they can be very large. Read only the sections you need using 'offset' and 'limit' parameters.
+16. **SINGLE TOOL CALL**: You must issue tool calls one at a time. Do not attempt to use multiple tools in a single response block. Wait for the result of the first tool before calling the next.
 </critical_rules>
 
 <communication_style>

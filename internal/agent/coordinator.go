@@ -76,6 +76,29 @@ var opencodeMessagesModels = map[string]bool{
 	"qwen3.7-max": true,
 }
 
+// ProviderPolicy defines template and reasoning defaults passed to providers
+// that support Jinja chat templates (e.g. vLLM, OpenRouter). The fields are
+// exported so they can be extended or overridden via configuration in the
+// future without changing the struct layout.
+type ProviderPolicy struct {
+	// ChatTemplateKwargs are injected into the request body under the
+	// "chat_template_kwargs" key so that providers can forward them to
+	// Jinja-based chat templates.
+	ChatTemplateKwargs map[string]any
+}
+
+// defaultProviderPolicy returns a policy with safe defaults for thinking
+// preservation and enabling. Callers may mutate the returned value or
+// replace ChatTemplateKwargs before passing it to the request builder.
+func defaultProviderPolicy() ProviderPolicy {
+	return ProviderPolicy{
+		ChatTemplateKwargs: map[string]any{
+			"preserve_thinking": true,
+			"enable_thinking":   true,
+		},
+	}
+}
+
 type Coordinator interface {
 	// INFO: (kujtim) this is not used yet we will use this when we have multiple agents
 	// SetMainAgent(string)
@@ -452,6 +475,11 @@ func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.
 		}
 	case openaicompat.Name, hyper.Name:
 		extraBody := make(map[string]any)
+
+		// Inject chat_template_kwargs so Jinja-based providers can
+		// preserve and enable thinking tags in the model output.
+		policy := defaultProviderPolicy()
+		extraBody["chat_template_kwargs"] = policy.ChatTemplateKwargs
 
 		_, hasReasoningEffort := mergedOptions["reasoning_effort"]
 		if !hasReasoningEffort && shouldSetEffort {
