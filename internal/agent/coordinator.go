@@ -278,13 +278,18 @@ func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, 
 		result, originalErr = run()
 		if c.isBadRequest(originalErr) {
 			// Second fallback: the sanitized tool call input is still
-			// malformed (e.g. unquoted keys, trailing commas). Strip the
-			// last assistant tool call and retry — the model can recover
-			// from the stripped context on the third attempt.
+			// malformed (e.g. unquoted keys, trailing commas). Before
+			// stripping the last tool call, inject a Tool Observation
+			// so the model understands why the call failed and can
+			// self-correct on the next attempt.
 			// Use a fresh background context so a user-initiated cancel
 			// (Escape key) does not cause this attempt to fail instantly.
 			slog.Warn("Bad Request persists after first retry, stripping last tool call and retrying", "error", originalErr, "session_id", sessionID)
-			result, originalErr = c.runWithStrippedLastToolCall(context.Background(), sessionID, SessionAgentCall{
+			stripCtx := WithStripLastToolCall(context.Background())
+			// Inject the tool observation error into the session so the
+			// agent can see why the call failed and self-correct.
+			c.injectToolObservation(stripCtx, sessionID, originalErr)
+			result, originalErr = c.currentAgent.Run(stripCtx, SessionAgentCall{
 				SessionID:        sessionID,
 				RunID:            runID,
 				Prompt:           prompt,
@@ -1160,6 +1165,54 @@ func (c *coordinator) isBadRequest(err error) bool {
 		strings.Contains(msg, "overflow") ||
 		strings.Contains(msg, "extra data") ||
 		strings.Contains(msg, "parse error")
+}
+
+// injectToolObservation finds the last assistant message with tool calls in
+// the session and injects a Tool Observation message so the model understands
+// why the call failed. This is called before stripping the last tool call
+// during 400 Bad Request recovery.
+func (c *coordinator) injectToolObservation(ctx context.Context, sessionID string, err error) {
+	msgs, listErr := c.messages.List(ctx, sessionID)
+	if listErr != nil {
+		slog.Warn("Failed to list messages for tool observation injection", "error", listErr, "session_id", sessionID)
+		return
+	}
+
+	// Find the last assistant message with tool calls.
+	var lastToolCallID, lastToolCallName string
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == message.Assistant {
+			toolCalls := msgs[i].ToolCalls()
+			if len(toolCalls) > 0 {
+				lastToolCallID = toolCalls[len(toolCalls)-1].ID
+				lastToolCallName = toolCalls[len(toolCalls)-1].Name
+				break
+			}
+		}
+	}
+
+	if lastToolCallID == "" || lastToolCallName == "" {
+		slog.Warn("No tool call found for tool observation injection", "session_id", sessionID)
+		return
+	}
+
+	// Create and inject the Tool Observation message using the actual
+	// tool call ID so it passes the orphan filter.
+	observation := translateToObservation(err, lastToolCallName)
+	toolResult := message.ToolResult{
+		ToolCallID: lastToolCallID,
+		Name:       lastToolCallName,
+		Content:    observation,
+		IsError:    true,
+	}
+
+	_, createErr := c.messages.Create(ctx, sessionID, message.CreateMessageParams{
+		Role:  message.Tool,
+		Parts: []message.ContentPart{toolResult},
+	})
+	if createErr != nil {
+		slog.Warn("Failed to inject tool observation", "error", createErr, "session_id", sessionID)
+	}
 }
 
 // runWithStrippedLastToolCall retries the agent run with the last assistant

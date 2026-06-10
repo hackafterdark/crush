@@ -17,11 +17,40 @@ type runIDContextKey struct{}
 // input is malformed and causes a persistent 400 Bad Request.
 type stripLastToolCallContextKey struct{}
 
+// toolObservationErrorKey is an unexported context key that carries the
+// original validation error from the coordinator to the agent. When
+// stripping is triggered, the agent uses this error to inject a
+// "Tool Observation" message so the model understands why the call failed.
+type toolObservationErrorKey struct{}
+
 // WithStripLastToolCall returns ctx tagged so the agent skips the last
 // assistant tool call. Used as a recovery path for malformed JSON in
 // stored tool call inputs.
 func WithStripLastToolCall(ctx context.Context) context.Context {
 	return context.WithValue(ctx, stripLastToolCallContextKey{}, true)
+}
+
+// WithToolObservationError returns a context tagged with the original
+// validation error, along with the tool name. The agent uses this to
+// inject a "Tool Observation" message instead of silently stripping.
+func WithToolObservationError(ctx context.Context, toolName string, err error) context.Context {
+	return context.WithValue(ctx, toolObservationErrorKey{}, toolObservationInfo{ToolName: toolName, Err: err})
+}
+
+// ToolObservationErrorFromContext returns the tool observation info
+// set by [WithToolObservationError], or zero values if none was set.
+func ToolObservationErrorFromContext(ctx context.Context) toolObservationInfo {
+	if v, ok := ctx.Value(toolObservationErrorKey{}).(toolObservationInfo); ok {
+		return v
+	}
+	return toolObservationInfo{}
+}
+
+// toolObservationInfo carries the original validation error and tool name
+// from the coordinator to the agent for Tool Observation injection.
+type toolObservationInfo struct {
+	ToolName string
+	Err      error
 }
 
 // IsStripLastToolCall returns true if the context requests stripping

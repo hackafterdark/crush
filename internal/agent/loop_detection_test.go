@@ -286,6 +286,104 @@ func TestIsReasoningOnlyStep(t *testing.T) {
 	})
 }
 
+func TestHasConsecutiveToolFailures(t *testing.T) {
+	t.Run("no steps returns false", func(t *testing.T) {
+		result := hasConsecutiveToolFailures(nil)
+		if result {
+			t.Error("expected false for empty steps")
+		}
+	})
+
+	t.Run("fewer steps than window returns false", func(t *testing.T) {
+		steps := make([]fantasy.StepResult, 5)
+		for i := range steps {
+			steps[i] = makeStep(
+				[]fantasy.ToolCallContent{{ToolCallID: "1", ToolName: "grep", Input: `{}`}},
+				[]fantasy.ToolResultContent{{ToolCallID: "1", ToolName: "grep", Result: fantasy.ToolResultOutputContentError{}}},
+			)
+		}
+		result := hasConsecutiveToolFailures(steps)
+		if result {
+			t.Error("expected false when fewer steps than window")
+		}
+	})
+
+	t.Run("success resets failure count", func(t *testing.T) {
+		// 2 failures, then a success, then 2 more failures
+		// The success resets the count, so only 2 failures after reset
+		// which equals toolFailureMaxCount (2) but doesn't exceed it.
+		steps := make([]fantasy.StepResult, 10)
+		// 2 failures before success
+		for i := range 2 {
+			steps[i] = makeStep(
+				[]fantasy.ToolCallContent{{ToolCallID: fmt.Sprintf("fail_%d", i), ToolName: "grep", Input: `{}`}},
+				[]fantasy.ToolResultContent{{ToolCallID: fmt.Sprintf("fail_%d", i), ToolName: "grep", Result: fantasy.ToolResultOutputContentError{}}},
+			)
+		}
+		// Success
+		steps[2] = makeToolStep("grep", `{}`, "ok")
+		// 2 more failures after reset (at threshold, not exceeding)
+		for i := 3; i < 5; i++ {
+			steps[i] = makeStep(
+				[]fantasy.ToolCallContent{{ToolCallID: fmt.Sprintf("fail2_%d", i), ToolName: "grep", Input: `{}`}},
+				[]fantasy.ToolResultContent{{ToolCallID: fmt.Sprintf("fail2_%d", i), ToolName: "grep", Result: fantasy.ToolResultOutputContentError{}}},
+			)
+		}
+		// Fill rest with different tools
+		for i := 5; i < 10; i++ {
+			steps[i] = makeToolStep("read", fmt.Sprintf(`{"i":%d}`, i), fmt.Sprintf("result-%d", i))
+		}
+		result := hasConsecutiveToolFailures(steps)
+		if result {
+			t.Error("expected false: success should reset failure count, only 2 failures after reset")
+		}
+	})
+
+	t.Run("exceeds threshold returns true", func(t *testing.T) {
+		// 3 consecutive failures for same tool (exceeds toolFailureMaxCount=2)
+		steps := make([]fantasy.StepResult, 10)
+		for i := range 3 {
+			steps[i] = makeStep(
+				[]fantasy.ToolCallContent{{ToolCallID: fmt.Sprintf("fail_%d", i), ToolName: "grep", Input: `{}`}},
+				[]fantasy.ToolResultContent{{ToolCallID: fmt.Sprintf("fail_%d", i), ToolName: "grep", Result: fantasy.ToolResultOutputContentError{}}},
+			)
+		}
+		// Fill rest with different tools
+		for i := 3; i < 10; i++ {
+			steps[i] = makeToolStep("read", fmt.Sprintf(`{"i":%d}`, i), fmt.Sprintf("result-%d", i))
+		}
+		result := hasConsecutiveToolFailures(steps)
+		if !result {
+			t.Error("expected true: 3 consecutive failures exceeds threshold of 2")
+		}
+	})
+
+	t.Run("different tools tracked separately", func(t *testing.T) {
+		// 2 failures for grep, 2 failures for read (each at threshold but not exceeding)
+		steps := make([]fantasy.StepResult, 10)
+		for i := range 2 {
+			steps[i] = makeStep(
+				[]fantasy.ToolCallContent{{ToolCallID: fmt.Sprintf("grep_fail_%d", i), ToolName: "grep", Input: `{}`}},
+				[]fantasy.ToolResultContent{{ToolCallID: fmt.Sprintf("grep_fail_%d", i), ToolName: "grep", Result: fantasy.ToolResultOutputContentError{}}},
+			)
+		}
+		for i := 2; i < 4; i++ {
+			steps[i] = makeStep(
+				[]fantasy.ToolCallContent{{ToolCallID: fmt.Sprintf("read_fail_%d", i-2), ToolName: "read", Input: `{}`}},
+				[]fantasy.ToolResultContent{{ToolCallID: fmt.Sprintf("read_fail_%d", i-2), ToolName: "read", Result: fantasy.ToolResultOutputContentError{}}},
+			)
+		}
+		// Fill rest with different tools
+		for i := 4; i < 10; i++ {
+			steps[i] = makeToolStep("write", fmt.Sprintf(`{"i":%d}`, i), fmt.Sprintf("result-%d", i))
+		}
+		result := hasConsecutiveToolFailures(steps)
+		if result {
+			t.Error("expected false: each tool has exactly 2 failures (at threshold, not exceeding)")
+		}
+	})
+}
+
 func TestHasRepeatedThinking(t *testing.T) {
 	t.Run("fewer steps than threshold", func(t *testing.T) {
 		steps := make([]fantasy.StepResult, 4)

@@ -14,6 +14,7 @@ const (
 	loopDetectionMaxRepeats  = 5
 	reasoningLoopWindowSize  = 5
 	reasoningLoopMaxRepeats  = 2
+	toolFailureMaxCount      = 2
 )
 
 // hasRepeatedToolCalls checks whether the agent is stuck in a loop by looking
@@ -165,6 +166,75 @@ func hasRepeatedThinking(steps []fantasy.StepResult) bool {
 		counts[text]++
 		if counts[text] > reasoningLoopMaxRepeats {
 			return true
+		}
+	}
+
+	return false
+}
+
+// hasConsecutiveToolFailures checks whether the agent is stuck in a loop of
+// consecutive tool failures for the same tool. If a specific tool fails more
+// than toolFailureMaxCount times in a row, this returns true to prevent
+// infinite retry loops.
+func hasConsecutiveToolFailures(steps []fantasy.StepResult) bool {
+	if len(steps) < loopDetectionWindowSize {
+		return false
+	}
+
+	// Track consecutive failure counts per tool name, scanning from the
+	// most recent step backwards.
+	type toolFail struct {
+		name  string
+		count int
+	}
+	var failures []toolFail
+
+	for i := len(steps) - 1; i >= 0; i-- {
+		content := steps[i].Content
+		toolCalls := content.ToolCalls()
+		toolResults := content.ToolResults()
+
+		// Build a map of tool call IDs to their result types.
+		resultByID := make(map[string]bool) // true = error, false = success
+		for _, tr := range toolResults {
+			isErr := false
+			if _, ok := fantasy.AsToolResultOutputType[fantasy.ToolResultOutputContentError](tr.Result); ok {
+				isErr = true
+			}
+			resultByID[tr.ToolCallID] = isErr
+		}
+
+		for _, tc := range toolCalls {
+			isErr, ok := resultByID[tc.ToolCallID]
+			if !ok {
+				// No result for this call — treat as error.
+				isErr = true
+			}
+			if isErr {
+				// Check if we already have a failure entry for this tool.
+				found := false
+				for j := range failures {
+					if failures[j].name == tc.ToolName {
+						failures[j].count++
+						if failures[j].count > toolFailureMaxCount {
+							return true
+						}
+						found = true
+						break
+					}
+				}
+				if !found {
+					failures = append(failures, toolFail{name: tc.ToolName, count: 1})
+				}
+			} else {
+				// A successful call resets the chain for that tool.
+				for j := range failures {
+					if failures[j].name == tc.ToolName {
+						failures = append(failures[:j], failures[j+1:]...)
+						break
+					}
+				}
+			}
 		}
 	}
 

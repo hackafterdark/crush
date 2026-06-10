@@ -24,6 +24,8 @@ import (
 	"sync"
 	"time"
 
+	"unicode"
+
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/fantasy"
 	"charm.land/fantasy/providers/anthropic"
@@ -445,6 +447,16 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 				prepared.Messages = append([]fantasy.Message{fantasy.NewSystemMessage(promptPrefix)}, prepared.Messages...)
 			}
 
+			// Set the dynamic system prompt by combining the static system
+			// prompt with any dynamic state (todo list, etc.).
+			dynamic := a.buildDynamicSystemPrompt(call.SessionID)
+			combined := systemPrompt
+			combined += "\n\n<tool-observation-instructions>\nIf you receive a 'Tool Observation' in a tool result message, you are required to analyze the error and adjust your strategy before retrying. Do not repeat the same failed tool call with the same input. Review the tool definition, correct the input parameters, and ensure valid JSON syntax.\n</tool-observation-instructions>"
+			if dynamic != "" {
+				combined += "\n\n<todo_list>\n" + dynamic + "\n</todo_list>"
+			}
+			prepared.System = &combined
+
 			// Propagate goal ID if present in the caller context.
 			if goalID, ok := ctx.Value(goal.GoalIDContextKey).(string); ok {
 				callContext = context.WithValue(callContext, goal.GoalIDContextKey, goalID)
@@ -620,6 +632,9 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			},
 			func(steps []fantasy.StepResult) bool {
 				return hasRepeatedThinking(steps)
+			},
+			func(steps []fantasy.StepResult) bool {
+				return hasConsecutiveToolFailures(steps)
 			},
 		},
 	})
@@ -1013,16 +1028,6 @@ func (a *sessionAgent) preparePrompt(ctx context.Context, msgs []message.Message
 	}
 
 	var history []fantasy.Message
-	if !a.isSubAgent {
-		history = append(history, fantasy.NewUserMessage(
-			fmt.Sprintf(
-				"<system_reminder>%s</system_reminder>",
-				`This is a reminder that your todo list is currently empty. DO NOT mention this to the user explicitly because they are already aware.
-If you are working on tasks that would benefit from a todo list please use the "todos" tool to create one.
-If not, please feel free to ignore. Again do not mention this message to the user.`,
-			),
-		))
-	}
 	// Collect all tool call IDs present in assistant messages and all tool
 	// result IDs present in tool messages. This lets us detect both orphaned
 	// tool results (result without a call) and orphaned tool calls (call
@@ -1048,6 +1053,12 @@ If not, please feel free to ignore. Again do not mention this message to the use
 		}
 		// Assistant message without content or tool calls (cancelled before it returned anything).
 		if m.Role == message.Assistant && len(m.ToolCalls()) == 0 && m.Content().Text == "" && m.ReasoningContent().String() == "" {
+			continue
+		}
+		// Skip assistant messages that ended in an error — their partial
+		// content is already visible to the user and sending it back to the
+		// model causes it to repeat the failed response on the next turn.
+		if m.Role == message.Assistant && m.FinishReason() == message.FinishReasonError {
 			continue
 		}
 		if m.Role == message.Tool {
@@ -1831,4 +1842,57 @@ func estimateMediaTokensForMessage(mediaType, text string, dataBytes int) int64 
 		return approxTokenCount(mediaType) + approxTokenCount(text)
 	}
 	return approxTokenCount(fmt.Sprintf("%s %s %d bytes", mediaType, text, dataBytes))
+}
+
+// buildDynamicSystemPrompt returns dynamic system-level content that should
+// be injected into the system prompt on every turn (e.g. todo list state).
+// It is safe to call on every Run() and never panics.
+func (a *sessionAgent) buildDynamicSystemPrompt(sessionID string) string {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("buildDynamicSystemPrompt panicked, using fallback", "recover", r)
+		}
+	}()
+
+	sess, err := a.sessions.Get(context.Background(), sessionID)
+	if err != nil {
+		slog.Warn("Failed to get session for dynamic system prompt, using fallback", "error", err)
+		return ""
+	}
+
+	if len(sess.Todos) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	for i, todo := range sess.Todos {
+		if todo.Status == session.TodoStatusCompleted {
+			continue
+		}
+		safe := sanitize(todo.Content)
+		sb.WriteString(fmt.Sprintf("%d. %s (%s)\n", i+1, safe, todo.ActiveForm))
+	}
+
+	result := strings.TrimSpace(sb.String())
+	if result == "" {
+		return ""
+	}
+
+	maxLen := 2000
+	if len(result) > maxLen {
+		result = result[:maxLen] + "\n[truncated, some items omitted]"
+	}
+
+	return result
+}
+
+// sanitize strips non-printable characters from s, preserving newlines and tabs.
+func sanitize(s string) string {
+	var out []rune
+	for _, r := range s {
+		if unicode.IsPrint(r) || r == '\n' || r == '\t' {
+			out = append(out, r)
+		}
+	}
+	return string(out)
 }

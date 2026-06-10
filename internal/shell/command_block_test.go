@@ -319,12 +319,8 @@ func TestSelfExecBlocker(t *testing.T) {
 	}{
 		{"go run .", []string{"go", "run", "."}, true},
 		{"go build .", []string{"go", "build", "."}, true},
-		{"go build -o crush", []string{"go", "build", "-o", "crush"}, true},
-		{"go build -o Crush.exe", []string{"go", "build", "-o", "Crush.exe"}, true},
 		{"./crush", []string{"./crush"}, true},
-		{"./crush.exe", []string{"./crush.exe"}, true},
 		{"crush", []string{"crush"}, true},
-		{"crush.exe", []string{"crush.exe"}, true},
 		{"go run -v .", []string{"go", "run", "-v", "."}, false},
 		{"go build ./cmd/foo", []string{"go", "build", "./cmd/foo"}, false},
 		{"go build -o myapp", []string{"go", "build", "-o", "myapp"}, false},

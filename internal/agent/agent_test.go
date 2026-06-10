@@ -682,22 +682,22 @@ func TestPreparePrompt_FiltersImageAttachments(t *testing.T) {
 
 	// When supportsImages is false, image attachments should be stripped.
 	history, _ := agent.preparePrompt(context.Background(), msgs, false)
-	// First message is the system reminder, second is the user message.
-	require.Len(t, history, 2)
-	require.Len(t, history[1].Content, 1)
-	text, ok := fantasy.AsMessagePart[fantasy.TextPart](history[1].Content[0])
+	// First message is the user message (system_reminder moved to system prompt).
+	require.Len(t, history, 1)
+	require.Len(t, history[0].Content, 1)
+	text, ok := fantasy.AsMessagePart[fantasy.TextPart](history[0].Content[0])
 	require.True(t, ok)
 	require.Contains(t, text.Text, "hello world")
 	require.Contains(t, text.Text, "important notes")
 
 	// When supportsImages is true, image attachments should remain.
 	history, _ = agent.preparePrompt(context.Background(), msgs, true)
-	require.Len(t, history, 2)
-	require.Len(t, history[1].Content, 2)
-	text, ok = fantasy.AsMessagePart[fantasy.TextPart](history[1].Content[0])
+	require.Len(t, history, 1)
+	require.Len(t, history[0].Content, 2)
+	text, ok = fantasy.AsMessagePart[fantasy.TextPart](history[0].Content[0])
 	require.True(t, ok)
 	require.Contains(t, text.Text, "hello world")
-	file, ok := fantasy.AsMessagePart[fantasy.FilePart](history[1].Content[1])
+	file, ok := fantasy.AsMessagePart[fantasy.FilePart](history[0].Content[1])
 	require.True(t, ok)
 	require.Equal(t, "image.png", file.Filename)
 }
