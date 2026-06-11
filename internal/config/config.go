@@ -556,6 +556,26 @@ type HookConfig struct {
 	Timeout int `json:"timeout,omitempty" jsonschema:"description=Timeout in seconds for the hook command,default=30"`
 }
 
+// Observability holds OpenTelemetry configuration for distributed tracing
+// and metrics export.
+type Observability struct {
+	// Endpoint is the OTLP endpoint to export traces and metrics to.
+	// When empty, OTel is disabled (no-op).
+	Endpoint string `json:"endpoint,omitempty" jsonschema:"description=OTLP endpoint for traces and metrics,example=otel-collector:4317"`
+
+	// ServiceName is the name of the service in the OTel resource.
+	ServiceName string `json:"service_name,omitempty" jsonschema:"description=Service name for OTel resource,example=crush"`
+
+	// Protocol is the OTLP transport protocol: "grpc" (default) or "http/protobuf".
+	Protocol string `json:"protocol,omitempty" jsonschema:"description=OTLP transport protocol,default=grpc,example=grpc"`
+
+	// SamplingRate is the trace sampling rate between 0.0 and 1.0.
+	SamplingRate float64 `json:"sampling_rate,omitempty" jsonschema:"description=Trace sampling rate,default=1.0,example=0.1"`
+
+	// ResourceAttributes are additional attributes to attach to OTel spans and metrics.
+	ResourceAttributes map[string]string `json:"resource_attributes,omitempty" jsonschema:"description=Additional OTel resource attributes"`
+}
+
 // DisplayName returns the hook name for display purposes. It returns Name
 // when set, otherwise falls back to Command.
 func (h *HookConfig) DisplayName() string {
@@ -598,6 +618,8 @@ type Config struct {
 	Tools Tools `json:"tools,omitzero" jsonschema:"description=Tool configurations"`
 
 	Hooks map[string][]HookConfig `json:"hooks,omitempty" jsonschema:"description=User-defined shell commands that fire on hook events (e.g. PreToolUse)"`
+
+	Observability *Observability `json:"observability,omitempty" jsonschema:"description=OpenTelemetry observability configuration"`
 
 	Agents map[string]Agent `json:"-"`
 }
