@@ -16,9 +16,10 @@ import (
 	"github.com/charmbracelet/crush/internal/filetracker"
 	"github.com/charmbracelet/crush/internal/fsext"
 	"github.com/charmbracelet/crush/internal/history"
-
 	"github.com/charmbracelet/crush/internal/lsp"
+	"github.com/charmbracelet/crush/internal/otel"
 	"github.com/charmbracelet/crush/internal/permission"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 //go:embed append.md
@@ -56,6 +57,9 @@ func NewAppendTool(
 		AppendToolName,
 		appendDescription,
 		func(ctx context.Context, params AppendParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			ctx, span := otel.StartSpan(ctx, "tool.append")
+			defer span.End()
+			span.SetAttributes(attribute.String("tool.name", AppendToolName))
 			if params.FilePath == "" {
 				return fantasy.NewTextErrorResponse("file_path is required"), nil
 			}

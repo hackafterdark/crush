@@ -23,6 +23,8 @@ import (
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/csync"
 	"github.com/charmbracelet/crush/internal/fsext"
+	"github.com/charmbracelet/crush/internal/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // regexCache provides thread-safe caching of compiled regex patterns
@@ -125,6 +127,9 @@ func NewGrepTool(workingDir string, config config.ToolGrep) fantasy.AgentTool {
 		GrepToolName,
 		grepDescription(),
 		func(ctx context.Context, params GrepParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			ctx, span := otel.StartSpan(ctx, "tool.grep")
+			defer span.End()
+			span.SetAttributes(attribute.String("tool.name", GrepToolName))
 			if params.Pattern == "" {
 				return fantasy.NewTextErrorResponse("pattern is required"), nil
 			}

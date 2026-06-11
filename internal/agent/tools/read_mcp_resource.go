@@ -12,7 +12,9 @@ import (
 	"github.com/charmbracelet/crush/internal/agent/tools/mcp"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/filepathext"
+	"github.com/charmbracelet/crush/internal/otel"
 	"github.com/charmbracelet/crush/internal/permission"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type ReadMCPResourceParams struct {
@@ -35,6 +37,9 @@ func NewReadMCPResourceTool(cfg *config.ConfigStore, permissions permission.Serv
 		ReadMCPResourceToolName,
 		readMCPResourceDescription,
 		func(ctx context.Context, params ReadMCPResourceParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			ctx, span := otel.StartSpan(ctx, "tool.read_mcp_resource")
+			defer span.End()
+			span.SetAttributes(attribute.String("tool.name", ReadMCPResourceToolName))
 			params.MCPName = strings.TrimSpace(params.MCPName)
 			params.URI = strings.TrimSpace(params.URI)
 			if params.MCPName == "" {

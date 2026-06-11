@@ -6,7 +6,9 @@ import (
 	"fmt"
 
 	"charm.land/fantasy"
+	"github.com/charmbracelet/crush/internal/otel"
 	"github.com/charmbracelet/crush/internal/shell"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const (
@@ -31,6 +33,9 @@ func NewJobKillTool() fantasy.AgentTool {
 		JobKillToolName,
 		jobKillDescription,
 		func(ctx context.Context, params JobKillParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			ctx, span := otel.StartSpan(ctx, "tool.job_kill")
+			defer span.End()
+			span.SetAttributes(attribute.String("tool.name", JobKillToolName))
 			if params.ShellID == "" {
 				return fantasy.NewTextErrorResponse("missing shell_id"), nil
 			}

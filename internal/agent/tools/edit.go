@@ -16,9 +16,10 @@ import (
 	"github.com/charmbracelet/crush/internal/filetracker"
 	"github.com/charmbracelet/crush/internal/fsext"
 	"github.com/charmbracelet/crush/internal/history"
-
 	"github.com/charmbracelet/crush/internal/lsp"
+	"github.com/charmbracelet/crush/internal/otel"
 	"github.com/charmbracelet/crush/internal/permission"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type EditParams struct {
@@ -70,6 +71,9 @@ func NewEditTool(
 		EditToolName,
 		editDescription,
 		func(ctx context.Context, params EditParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			ctx, span := otel.StartSpan(ctx, "tool.edit")
+			defer span.End()
+			span.SetAttributes(attribute.String("tool.name", EditToolName))
 			if params.FilePath == "" {
 				return fantasy.NewTextErrorResponse("file_path is required"), nil
 			}

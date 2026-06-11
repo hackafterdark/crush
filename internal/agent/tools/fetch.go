@@ -12,9 +12,12 @@ import (
 	"unicode/utf8"
 
 	"charm.land/fantasy"
+	"github.com/charmbracelet/crush/internal/otel"
+	"github.com/charmbracelet/crush/internal/permission"
+	"go.opentelemetry.io/otel/attribute"
+
 	md "github.com/JohannesKaufmann/html-to-markdown"
 	"github.com/PuerkitoBio/goquery"
-	"github.com/charmbracelet/crush/internal/permission"
 )
 
 const (
@@ -59,6 +62,9 @@ func NewFetchTool(permissions permission.Service, workingDir string, client *htt
 		FetchToolName,
 		fetchDescription(),
 		func(ctx context.Context, params FetchParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			ctx, span := otel.StartSpan(ctx, "tool.fetch")
+			defer span.End()
+			span.SetAttributes(attribute.String("tool.name", FetchToolName))
 			if params.URL == "" {
 				return fantasy.NewTextErrorResponse("URL parameter is required"), nil
 			}

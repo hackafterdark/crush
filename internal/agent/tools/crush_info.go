@@ -11,7 +11,9 @@ import (
 	"github.com/charmbracelet/crush/internal/agent/tools/mcp"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/lsp"
+	"github.com/charmbracelet/crush/internal/otel"
 	"github.com/charmbracelet/crush/internal/skills"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const CrushInfoToolName = "crush_info"
@@ -32,6 +34,9 @@ func NewCrushInfoTool(
 		CrushInfoToolName,
 		crushInfoDescription,
 		func(ctx context.Context, _ CrushInfoParams, _ fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			ctx, span := otel.StartSpan(ctx, "tool.crush_info")
+			defer span.End()
+			span.SetAttributes(attribute.String("tool.name", CrushInfoToolName))
 			return fantasy.NewTextResponse(buildCrushInfo(cfg, lspManager, allSkills, activeSkills, skillTracker)), nil
 		},
 	)

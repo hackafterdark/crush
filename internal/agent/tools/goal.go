@@ -7,6 +7,8 @@ import (
 
 	"charm.land/fantasy"
 	"github.com/charmbracelet/crush/internal/goal"
+	"github.com/charmbracelet/crush/internal/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 //go:embed update_goal.md
@@ -20,6 +22,9 @@ type UpdateGoalInput struct {
 
 func NewUpdateGoalTool(goalService goal.Service) fantasy.AgentTool {
 	return fantasy.NewAgentTool(UpdateGoalToolName, updateGoalDescription, func(ctx context.Context, input UpdateGoalInput, _ fantasy.ToolCall) (fantasy.ToolResponse, error) {
+		ctx, span := otel.StartSpan(ctx, "tool.update_goal")
+		defer span.End()
+		span.SetAttributes(attribute.String("tool.name", UpdateGoalToolName))
 		sessionID, ok := ctx.Value(SessionIDContextKey).(string)
 		if !ok {
 			return fantasy.ToolResponse{}, fmt.Errorf("session id not found in context")

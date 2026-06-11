@@ -15,8 +15,10 @@ import (
 	"charm.land/fantasy"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/fsext"
+	"github.com/charmbracelet/crush/internal/otel"
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/shell"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type BashParams struct {
@@ -198,6 +200,9 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 		BashToolName,
 		string(bashDescription(attribution, modelID)),
 		func(ctx context.Context, params BashParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			ctx, span := otel.StartSpan(ctx, "tool.bash")
+			defer span.End()
+			span.SetAttributes(attribute.String("tool.name", BashToolName))
 			if params.Command == "" {
 				return fantasy.NewTextErrorResponse("missing command"), nil
 			}

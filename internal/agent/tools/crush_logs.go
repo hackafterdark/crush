@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	"github.com/charmbracelet/crush/internal/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const CrushLogsToolName = "crush_logs"
@@ -78,6 +80,9 @@ func NewCrushLogsTool(logFile string) fantasy.AgentTool {
 		CrushLogsToolName,
 		crushLogsDescription(),
 		func(ctx context.Context, params CrushLogsParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			ctx, span := otel.StartSpan(ctx, "tool.crush_logs")
+			defer span.End()
+			span.SetAttributes(attribute.String("tool.name", CrushLogsToolName))
 			result := runCrushLogs(logFile, params)
 			return fantasy.NewTextResponse(result), nil
 		},

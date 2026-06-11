@@ -7,7 +7,9 @@ import (
 	"strings"
 
 	"charm.land/fantasy"
+	"github.com/charmbracelet/crush/internal/otel"
 	"github.com/charmbracelet/crush/internal/shell"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const (
@@ -35,6 +37,9 @@ func NewJobOutputTool() fantasy.AgentTool {
 		JobOutputToolName,
 		jobOutputDescription,
 		func(ctx context.Context, params JobOutputParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			ctx, span := otel.StartSpan(ctx, "tool.job_output")
+			defer span.End()
+			span.SetAttributes(attribute.String("tool.name", JobOutputToolName))
 			if params.ShellID == "" {
 				return fantasy.NewTextErrorResponse("missing shell_id"), nil
 			}

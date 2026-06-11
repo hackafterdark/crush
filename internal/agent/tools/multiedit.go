@@ -17,7 +17,9 @@ import (
 	"github.com/charmbracelet/crush/internal/fsext"
 	"github.com/charmbracelet/crush/internal/history"
 	"github.com/charmbracelet/crush/internal/lsp"
+	"github.com/charmbracelet/crush/internal/otel"
 	"github.com/charmbracelet/crush/internal/permission"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type MultiEditOperation struct {
@@ -68,6 +70,9 @@ func NewMultiEditTool(
 		MultiEditToolName,
 		multieditDescription,
 		func(ctx context.Context, params MultiEditParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			ctx, span := otel.StartSpan(ctx, "tool.multiedit")
+			defer span.End()
+			span.SetAttributes(attribute.String("tool.name", MultiEditToolName))
 			if params.FilePath == "" {
 				return fantasy.NewTextErrorResponse("file_path is required"), nil
 			}

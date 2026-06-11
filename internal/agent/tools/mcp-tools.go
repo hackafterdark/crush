@@ -8,7 +8,9 @@ import (
 	"charm.land/fantasy"
 	"github.com/charmbracelet/crush/internal/agent/tools/mcp"
 	"github.com/charmbracelet/crush/internal/config"
+	"github.com/charmbracelet/crush/internal/otel"
 	"github.com/charmbracelet/crush/internal/permission"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 // whitelistDockerTools contains Docker MCP tools that don't require permission.
@@ -97,6 +99,9 @@ func (m *Tool) Info() fantasy.ToolInfo {
 }
 
 func (m *Tool) Run(ctx context.Context, params fantasy.ToolCall) (fantasy.ToolResponse, error) {
+	ctx, span := otel.StartSpan(ctx, "tool.mcp")
+	defer span.End()
+	span.SetAttributes(attribute.String("tool.name", m.Name()))
 	sessionID := GetSessionFromContext(ctx)
 	if sessionID == "" {
 		return fantasy.ToolResponse{}, fmt.Errorf("session ID is required for creating a new file")
