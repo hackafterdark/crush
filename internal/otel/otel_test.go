@@ -3,6 +3,7 @@ package otel
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/stretchr/testify/require"
@@ -82,14 +83,14 @@ func TestStartSpan_NoEndpoint(t *testing.T) {
 
 func TestDurationAttribute(t *testing.T) {
 	// DurationAttribute should return a valid attribute.
-	d := DurationAttribute(100 * 1000) // 100ms in microseconds
+	d := DurationAttribute(100 * time.Millisecond) // 100ms
 	require.Equal(t, "duration_ms", string(d.Key))
 	require.Equal(t, 100.0, d.Value.AsFloat64())
 }
 
 func TestDurationUsAttribute(t *testing.T) {
 	// DurationUsAttribute should return a valid attribute.
-	d := DurationUsAttribute(1000 * 1000) // 1000ms = 1s in microseconds
+	d := DurationUsAttribute(1000 * time.Millisecond) // 1000ms = 1s in microseconds
 	require.Equal(t, "duration_us", string(d.Key))
 	require.Equal(t, int64(1000000), d.Value.AsInt64())
 }

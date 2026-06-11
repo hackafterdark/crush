@@ -31,6 +31,7 @@ import (
 	"github.com/charmbracelet/crush/internal/log"
 	"github.com/charmbracelet/crush/internal/lsp"
 	"github.com/charmbracelet/crush/internal/message"
+	"github.com/charmbracelet/crush/internal/otel"
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/session"
@@ -140,6 +141,20 @@ func New(ctx context.Context, conn *sql.DB, store *config.ConfigStore, skillsMgr
 		func(context.Context) error { return db.Release(dataDir) },
 		func(ctx context.Context) error { return mcp.Close(ctx) },
 	)
+
+	// Initialize OpenTelemetry tracing and metrics if configured.
+	if cfg.Observability != nil {
+		if shutdown, err := otel.Init(ctx, *cfg.Observability); err != nil {
+			slog.Warn("Failed to initialize otel tracing", "error", err)
+		} else {
+			app.cleanupFuncs = append(app.cleanupFuncs, shutdown)
+		}
+		if shutdown, err := otel.InitMetrics(*cfg.Observability); err != nil {
+			slog.Warn("Failed to initialize otel metrics", "error", err)
+		} else {
+			app.cleanupFuncs = append(app.cleanupFuncs, shutdown)
+		}
+	}
 
 	// TODO: remove the concept of agent config, most likely.
 	if !cfg.IsConfigured() {
