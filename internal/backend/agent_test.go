@@ -9,6 +9,7 @@ import (
 	"charm.land/fantasy"
 	"github.com/charmbracelet/crush/internal/agent"
 	"github.com/charmbracelet/crush/internal/app"
+	"github.com/charmbracelet/crush/internal/goal"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/proto"
 	"github.com/google/uuid"
@@ -57,6 +58,7 @@ func (c *blockingCoordinator) ClearQueue(string)                                
 func (c *blockingCoordinator) Summarize(context.Context, string) error           { return nil }
 func (c *blockingCoordinator) Model() agent.Model                                { return agent.Model{} }
 func (c *blockingCoordinator) UpdateModels(context.Context) error                { return nil }
+func (c *blockingCoordinator) GoalRuntime() *goal.Runtime                        { return nil }
 
 // insertAgentWorkspace installs a synthetic workspace with the given
 // coordinator (or none) and a workspace run context, mirroring the

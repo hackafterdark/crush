@@ -42,6 +42,9 @@ func NewRuntime(store Service, agent AgentRunner, notify pubsub.Publisher[notify
 }
 
 func (r *Runtime) OnTurnFinished(ctx context.Context, sessionID string) {
+	if r == nil {
+		return
+	}
 	err := r.MaybeContinue(ctx, sessionID)
 	if err != nil {
 		slog.Error("Goal runtime continuation failed", "session_id", sessionID, "error", err)
@@ -49,6 +52,9 @@ func (r *Runtime) OnTurnFinished(ctx context.Context, sessionID string) {
 }
 
 func (r *Runtime) MaybeContinue(ctx context.Context, sessionID string) error {
+	if r == nil || r.store == nil || r.agent == nil {
+		return nil
+	}
 	if r.agent.IsSessionBusy(sessionID) {
 		return nil
 	}

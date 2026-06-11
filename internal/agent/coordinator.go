@@ -372,7 +372,7 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 		}
 	}
 
-	if originalErr == nil {
+	if originalErr == nil && c.goalRuntime != nil {
 		go func() {
 			c.goalRuntime.OnTurnFinished(context.Background(), sessionID)
 		}()
