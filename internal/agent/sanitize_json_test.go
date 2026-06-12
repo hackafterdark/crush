@@ -135,7 +135,7 @@ func TestSanitizeJSONInputMultipleBracesInString(t *testing.T) {
 
 	// Simpler backtick test - use string concatenation to avoid backtick-in-backtick
 	input = `{"code": "` + "```" + `"}` + " extra"
-	require.Equal(t, `{"code": "`+ "```" + `"}`, sanitizeJSONInput(input))
+	require.Equal(t, `{"code": "`+"```"+`"}`, sanitizeJSONInput(input))
 }
 
 func TestSanitizeJSONInputRealToolCall(t *testing.T) {

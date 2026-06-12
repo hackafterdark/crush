@@ -69,6 +69,7 @@ func sanitizeResult(cfg *config.ConfigStore, mcpName, result string) string {
 
 	return result
 }
+
 // mcpTransportAttr returns OTel attributes describing the MCP server's
 // transport (stdio/pipe, HTTP, etc.) based on the client session state.
 func mcpTransportAttr(mcpName string) []attribute.KeyValue {

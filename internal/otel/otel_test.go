@@ -154,12 +154,12 @@ func TestStartGenAISpan_NoEndpoint(t *testing.T) {
 	outputTokens := int64(50)
 	temp := 0.7
 	ctx, span := StartGenAISpan(context.Background(), "chat gpt-4o", GenAIAttributes{
-		OperationName:    "chat",
-		ProviderName:     "openai",
-		RequestModel:     "gpt-4o",
-		ResponseModel:    "gpt-4o",
-		AgentName:        "Crush Agent",
-		FinishReason:     "stop",
+		OperationName:      "chat",
+		ProviderName:       "openai",
+		RequestModel:       "gpt-4o",
+		ResponseModel:      "gpt-4o",
+		AgentName:          "Crush Agent",
+		FinishReason:       "stop",
 		RequestTemperature: &temp,
 		UsageInputTokens:   &inputTokens,
 		UsageOutputTokens:  &outputTokens,

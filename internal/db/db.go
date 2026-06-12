@@ -419,7 +419,7 @@ type Queries struct {
 	getFileStmt                    *sql.Stmt
 	getFileByPathAndSessionStmt    *sql.Stmt
 	getFileReadStmt                *sql.Stmt
-	getGoalBySessionIDStmt           *sql.Stmt
+	getGoalBySessionIDStmt         *sql.Stmt
 	getHourDayHeatmapStmt          *sql.Stmt
 	getLastSessionStmt             *sql.Stmt
 	getMessageStmt                 *sql.Stmt
@@ -467,7 +467,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getFileStmt:                    q.getFileStmt,
 		getFileByPathAndSessionStmt:    q.getFileByPathAndSessionStmt,
 		getFileReadStmt:                q.getFileReadStmt,
-		getGoalBySessionIDStmt:           q.getGoalBySessionIDStmt,
+		getGoalBySessionIDStmt:         q.getGoalBySessionIDStmt,
 		getHourDayHeatmapStmt:          q.getHourDayHeatmapStmt,
 		getLastSessionStmt:             q.getLastSessionStmt,
 		getMessageStmt:                 q.getMessageStmt,

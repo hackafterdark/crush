@@ -44,7 +44,7 @@ RETURNING session_id, goal_id, objective, status, created_at, updated_at, active
 `
 
 type CreateGoalParams struct {
-	SessionID   string `json:"session_id"`
+	SessionID string `json:"session_id"`
 	GoalID    string `json:"goal_id"`
 	Objective string `json:"objective"`
 	Status    string `json:"status"`
@@ -111,9 +111,9 @@ RETURNING session_id, goal_id, objective, status, created_at, updated_at, active
 `
 
 type UpdateGoalStatusParams struct {
-	Status  string `json:"status"`
+	Status    string `json:"status"`
 	SessionID string `json:"session_id"`
-	GoalID  string `json:"goal_id"`
+	GoalID    string `json:"goal_id"`
 }
 
 func (q *Queries) UpdateGoalStatus(ctx context.Context, arg UpdateGoalStatusParams) (Goal, error) {

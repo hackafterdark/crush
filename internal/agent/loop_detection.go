@@ -10,11 +10,11 @@ import (
 )
 
 const (
-	loopDetectionWindowSize  = 10
-	loopDetectionMaxRepeats  = 5
-	reasoningLoopWindowSize  = 5
-	reasoningLoopMaxRepeats  = 2
-	toolFailureMaxCount      = 2
+	loopDetectionWindowSize = 10
+	loopDetectionMaxRepeats = 5
+	reasoningLoopWindowSize = 5
+	reasoningLoopMaxRepeats = 2
+	toolFailureMaxCount     = 2
 )
 
 // hasRepeatedToolCalls checks whether the agent is stuck in a loop by looking

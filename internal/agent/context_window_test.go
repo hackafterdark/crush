@@ -76,8 +76,8 @@ func TestEstimateMessageTokensForMessageToolCall(t *testing.T) {
 			Role: message.Assistant,
 			Parts: []message.ContentPart{
 				message.ToolCall{
-					ID:   "call-123",
-					Name: "bash",
+					ID:    "call-123",
+					Name:  "bash",
 					Input: `{"command": "ls -la"}`,
 				},
 			},
@@ -181,8 +181,8 @@ func TestEstimateMessageTokensForMessageMixed(t *testing.T) {
 			Parts: []message.ContentPart{
 				message.TextContent{Text: "sure, let me help"},
 				message.ToolCall{
-					ID:   "call-abc",
-					Name: "view",
+					ID:    "call-abc",
+					Name:  "view",
 					Input: `{"path": "src/main.go"}`,
 				},
 			},
@@ -236,8 +236,8 @@ func TestEstimateMessagePartTokensForMessageToolCall(t *testing.T) {
 	t.Parallel()
 
 	part := message.ToolCall{
-		ID:   "call-1",
-		Name: "bash",
+		ID:    "call-1",
+		Name:  "bash",
 		Input: `{"command": "echo hello"}`,
 	}
 	expected := approxTokenCount("call-1") + approxTokenCount("bash") + approxTokenCount(`{"command": "echo hello"}`)
@@ -248,8 +248,8 @@ func TestEstimateMessagePartTokensForMessagePointerToolCall(t *testing.T) {
 	t.Parallel()
 
 	part := &message.ToolCall{
-		ID:   "call-2",
-		Name: "view",
+		ID:    "call-2",
+		Name:  "view",
 		Input: `{"path": "file.txt"}`,
 	}
 	expected := approxTokenCount("call-2") + approxTokenCount("view") + approxTokenCount(`{"path": "file.txt"}`)

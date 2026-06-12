@@ -43,8 +43,8 @@ func parseLevel(level mcp.LoggingLevel) slog.Level {
 // on close.
 type ClientSession struct {
 	*mcp.ClientSession
-	cancel      context.CancelFunc
-	transport   string
+	cancel       context.CancelFunc
+	transport    string
 	transportURL string
 }
 

@@ -12,22 +12,22 @@ func TestMerge(t *testing.T) {
 		expected map[string]any
 	}{
 		{
-			name:   "empty inputs",
-			inputs: [][]byte{},
+			name:     "empty inputs",
+			inputs:   [][]byte{},
 			expected: map[string]any{},
 		},
 		{
-			name:   "single input",
-			inputs: [][]byte{[]byte(`{"a":1}`)},
+			name:     "single input",
+			inputs:   [][]byte{[]byte(`{"a":1}`)},
 			expected: map[string]any{"a": float64(1)},
 		},
 		{
-			name:   "overwrite primitive",
-			inputs: [][]byte{[]byte(`{"a":1}`), []byte(`{"a":2}`)},
+			name:     "overwrite primitive",
+			inputs:   [][]byte{[]byte(`{"a":1}`), []byte(`{"a":2}`)},
 			expected: map[string]any{"a": float64(2)},
 		},
 		{
-			name:   "merge nested objects",
+			name: "merge nested objects",
 			inputs: [][]byte{
 				[]byte(`{"a":{"b":1,"c":2}}`),
 				[]byte(`{"a":{"c":3,"d":4}}`),
@@ -41,13 +41,13 @@ func TestMerge(t *testing.T) {
 			},
 		},
 		{
-			name:   "replace array",
-			inputs: [][]byte{[]byte(`{"a":[1,2]}`), []byte(`{"a":[3,4]}`)},
+			name:     "replace array",
+			inputs:   [][]byte{[]byte(`{"a":[1,2]}`), []byte(`{"a":[3,4]}`)},
 			expected: map[string]any{"a": []any{float64(3), float64(4)}},
 		},
 		{
-			name:   "empty objects",
-			inputs: [][]byte{[]byte(`{}`), []byte(`{}`), []byte(`{}`)},
+			name:     "empty objects",
+			inputs:   [][]byte{[]byte(`{}`), []byte(`{}`), []byte(`{}`)},
 			expected: map[string]any{},
 		},
 		{

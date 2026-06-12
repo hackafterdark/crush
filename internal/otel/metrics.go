@@ -54,9 +54,9 @@ type metrics struct {
 	lspRequestsTotal    metric.Int64Counter
 	mcpRequestsTotal    metric.Int64Counter
 	// GenAI semantic convention metrics
-	genAITokenUsage   metric.Float64Histogram
-	genAIOpDuration   metric.Float64Histogram
-	genAITTFB         metric.Float64Histogram
+	genAITokenUsage metric.Float64Histogram
+	genAIOpDuration metric.Float64Histogram
+	genAITTFB       metric.Float64Histogram
 }
 
 // GetMetrics returns the global metrics instance.
