@@ -10,7 +10,10 @@ import (
 	"time"
 
 	"github.com/charmbracelet/crush/internal/config"
+	"github.com/charmbracelet/crush/internal/otel"
 	"github.com/charmbracelet/crush/internal/shell"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 // abandonGrace is how long runOne waits after ctx cancellation for the
@@ -93,6 +96,14 @@ func (r *Runner) Run(ctx context.Context, eventName, sessionID, toolName, toolIn
 		return AggregateResult{Decision: DecisionNone}, nil
 	}
 
+	// Instrument the overall hook execution.
+	hookCtx, hookSpan := otel.StartSpan(ctx, "hooks.pre_tool_use")
+	hookSpan.SetAttributes(
+		attribute.String("hooks.event", eventName),
+		attribute.String("hooks.tool", toolName),
+		attribute.Int("hooks.matching", len(matching)),
+	)
+
 	// Deduplicate by command string.
 	seen := make(map[string]bool, len(matching))
 	var deduped []config.HookConfig
@@ -114,7 +125,7 @@ func (r *Runner) Run(ctx context.Context, eventName, sessionID, toolName, toolIn
 	for i, h := range deduped {
 		go func(idx int, hook config.HookConfig) {
 			defer wg.Done()
-			results[idx] = r.runOne(ctx, hook, envVars, payload)
+			results[idx] = r.runOne(hookCtx, hook, envVars, payload)
 		}(i, h)
 	}
 	wg.Wait()
@@ -130,6 +141,16 @@ func (r *Runner) Run(ctx context.Context, eventName, sessionID, toolName, toolIn
 			Reason:       results[i].Reason,
 			InputRewrite: results[i].UpdatedInput != "",
 		}
+	}
+	if hookSpan != nil {
+		hookSpan.SetAttributes(
+			attribute.String("hooks.decision", agg.Decision.String()),
+			attribute.Bool("hooks.halt", agg.Halt),
+		)
+		if agg.Halt {
+			hookSpan.SetStatus(codes.Error, "hook halted turn")
+		}
+		hookSpan.End()
 	}
 	slog.Info(
 		"Hook completed",
@@ -173,6 +194,19 @@ func (r *Runner) runOne(parentCtx context.Context, hook config.HookConfig, envVa
 	timeout := hook.TimeoutDuration()
 	ctx, cancel := context.WithTimeout(parentCtx, timeout)
 	defer cancel()
+
+	// Instrument individual hook execution.
+	_, hookExecSpan := otel.StartSpan(ctx, "hooks.run")
+	hookExecSpan.SetAttributes(
+		attribute.String("hooks.command", hook.Command),
+		attribute.String("hooks.name", hook.DisplayName()),
+		attribute.Int64("hooks.timeout_ms", timeout.Milliseconds()),
+	)
+	defer func() {
+		if hookExecSpan != nil {
+			hookExecSpan.End()
+		}
+	}()
 
 	var stdout, stderr bytes.Buffer
 	done := make(chan error, 1)
