@@ -202,6 +202,9 @@ func TestBackgroundShell_StdoutAndStderr(t *testing.T) {
 }
 
 func TestBackgroundShell_ConcurrentAccess(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("bash for loop not available on Windows")
+	}
 	t.Parallel()
 
 	workingDir := t.TempDir()
@@ -282,6 +285,9 @@ func TestBackgroundShell_List(t *testing.T) {
 }
 
 func TestBackgroundShell_AutoBackground(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sleep is not available on Windows")
+	}
 	t.Parallel()
 
 	workingDir := t.TempDir()

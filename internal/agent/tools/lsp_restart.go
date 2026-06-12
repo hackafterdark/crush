@@ -11,6 +11,8 @@ import (
 
 	"charm.land/fantasy"
 	"github.com/charmbracelet/crush/internal/lsp"
+	"github.com/charmbracelet/crush/internal/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const LSPRestartToolName = "lsp_restart"
@@ -29,6 +31,13 @@ func NewLSPRestartTool(lspManager *lsp.Manager) fantasy.AgentTool {
 		LSPRestartToolName,
 		lspRestartDescription,
 		func(ctx context.Context, params LSPRestartParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			ctx, span := otel.StartSpan(ctx, "execute_tool lsp_restart")
+			defer span.End()
+			span.SetAttributes(
+				attribute.String("gen_ai.tool.name", LSPRestartToolName),
+				attribute.String("gen_ai.tool.call.id", call.ID),
+				attribute.String("gen_ai.tool.call.arguments", call.Input),
+			)
 			if lspManager.Clients().Len() == 0 {
 				return fantasy.NewTextErrorResponse("no LSP clients available to restart"), nil
 			}

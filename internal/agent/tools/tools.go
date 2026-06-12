@@ -15,6 +15,8 @@ type (
 	messageIDContextKey string
 	supportsImagesKey   string
 	modelNameKey        string
+	agentTurnSpanKey    string
+	llmCallSpanKey      string
 )
 
 const (
@@ -26,6 +28,10 @@ const (
 	SupportsImagesContextKey supportsImagesKey = "supports_images"
 	// ModelNameContextKey is the key for the model name in the context.
 	ModelNameContextKey modelNameKey = "model_name"
+	// AgentTurnSpanKey is the key for the agent turn span in the context.
+	AgentTurnSpanKey agentTurnSpanKey = "agent_turn_span"
+	// LLMCallSpanKey is the key for the LLM call span in the context.
+	LLMCallSpanKey llmCallSpanKey = "llm_call_span"
 )
 
 // getContextValue is a generic helper that retrieves a typed value from context.

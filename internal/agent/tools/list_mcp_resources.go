@@ -12,7 +12,9 @@ import (
 	"github.com/charmbracelet/crush/internal/agent/tools/mcp"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/filepathext"
+	"github.com/charmbracelet/crush/internal/otel"
 	"github.com/charmbracelet/crush/internal/permission"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type ListMCPResourcesParams struct {
@@ -33,6 +35,13 @@ func NewListMCPResourcesTool(cfg *config.ConfigStore, permissions permission.Ser
 		ListMCPResourcesToolName,
 		listMCPResourcesDescription,
 		func(ctx context.Context, params ListMCPResourcesParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			ctx, span := otel.StartSpan(ctx, "execute_tool list_mcp_resources")
+			defer span.End()
+			span.SetAttributes(
+				attribute.String("gen_ai.tool.name", ListMCPResourcesToolName),
+				attribute.String("gen_ai.tool.call.id", call.ID),
+				attribute.String("gen_ai.tool.call.arguments", call.Input),
+			)
 			params.MCPName = strings.TrimSpace(params.MCPName)
 			if params.MCPName == "" {
 				return fantasy.NewTextErrorResponse("mcp_name parameter is required"), nil

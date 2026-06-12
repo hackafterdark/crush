@@ -227,6 +227,8 @@ func NewToolMessageItem(
 		item = NewViewToolMessageItem(sty, toolCall, result, canceled)
 	case tools.WriteToolName:
 		item = NewWriteToolMessageItem(sty, toolCall, result, canceled)
+	case tools.AppendToolName:
+		item = NewAppendToolMessageItem(sty, toolCall, result, canceled)
 	case tools.EditToolName:
 		item = NewEditToolMessageItem(sty, toolCall, result, canceled)
 	case tools.MultiEditToolName:
@@ -1159,6 +1161,11 @@ func (t *baseToolMessageItem) formatParametersForCopy() string {
 		if json.Unmarshal([]byte(t.toolCall.Input), &params) == nil {
 			return fmt.Sprintf("**File:** %s", fsext.PrettyPath(params.FilePath))
 		}
+	case tools.AppendToolName:
+		var params tools.AppendParams
+		if json.Unmarshal([]byte(t.toolCall.Input), &params) == nil {
+			return fmt.Sprintf("**File:** %s", fsext.PrettyPath(params.FilePath))
+		}
 	case tools.FetchToolName:
 		var params tools.FetchParams
 		if json.Unmarshal([]byte(t.toolCall.Input), &params) == nil {
@@ -1297,6 +1304,8 @@ func (t *baseToolMessageItem) formatResultForCopy() string {
 		return t.formatMultiEditResultForCopy()
 	case tools.WriteToolName:
 		return t.formatWriteResultForCopy()
+	case tools.AppendToolName:
+		return t.formatAppendResultForCopy()
 	case tools.FetchToolName:
 		return t.formatFetchResultForCopy()
 	case tools.AgenticFetchToolName:
@@ -1475,6 +1484,67 @@ func (t *baseToolMessageItem) formatWriteResultForCopy() string {
 	}
 
 	var params tools.WriteParams
+	if json.Unmarshal([]byte(t.toolCall.Input), &params) != nil {
+		return t.result.Content
+	}
+
+	lang := ""
+	if params.FilePath != "" {
+		ext := strings.ToLower(filepath.Ext(params.FilePath))
+		switch ext {
+		case ".go":
+			lang = "go"
+		case ".js", ".mjs":
+			lang = "javascript"
+		case ".ts":
+			lang = "typescript"
+		case ".py":
+			lang = "python"
+		case ".rs":
+			lang = "rust"
+		case ".java":
+			lang = "java"
+		case ".c":
+			lang = "c"
+		case ".cpp", ".cc", ".cxx":
+			lang = "cpp"
+		case ".sh", ".bash":
+			lang = "bash"
+		case ".json":
+			lang = "json"
+		case ".yaml", ".yml":
+			lang = "yaml"
+		case ".xml":
+			lang = "xml"
+		case ".html":
+			lang = "html"
+		case ".css":
+			lang = "css"
+		case ".md":
+			lang = "markdown"
+		}
+	}
+
+	var result strings.Builder
+	fmt.Fprintf(&result, "File: %s\n", fsext.PrettyPath(params.FilePath))
+	if lang != "" {
+		fmt.Fprintf(&result, "```%s\n", lang)
+	} else {
+		result.WriteString("```\n")
+	}
+	result.WriteString(params.Content)
+	result.WriteString("\n```")
+
+	return result.String()
+}
+
+// formatAppendResultForCopy formats append tool results for clipboard.
+func (t *baseToolMessageItem) formatAppendResultForCopy() string {
+	if t.result == nil {
+		return ""
+	}
+
+	var params tools.AppendParams
 	if json.Unmarshal([]byte(t.toolCall.Input), &params) != nil {
 		return t.result.Content
 	}

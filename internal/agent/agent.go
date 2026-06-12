@@ -12,6 +12,7 @@ import (
 	"context"
 	_ "embed"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -23,6 +24,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"unicode"
 
 	"charm.land/catwalk/pkg/catwalk"
 	"charm.land/fantasy"
@@ -39,21 +42,20 @@ import (
 	"github.com/charmbracelet/crush/internal/agent/tools/mcp"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/csync"
+	"github.com/charmbracelet/crush/internal/goal"
 	"github.com/charmbracelet/crush/internal/message"
+	"github.com/charmbracelet/crush/internal/otel"
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/stringext"
 	"github.com/charmbracelet/crush/internal/version"
 	"github.com/charmbracelet/x/exp/charmtone"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
 	DefaultSessionName = "Untitled Session"
-
-	// Constants for auto-summarization thresholds
-	largeContextWindowThreshold = 200_000
-	largeContextWindowBuffer    = 20_000
-	smallContextWindowRatio     = 0.2
 )
 
 var userAgent = fmt.Sprintf("Charm-Crush/%s (https://charm.land/crush)", version.Version)
@@ -158,6 +160,7 @@ type sessionAgent struct {
 	sessions             session.Service
 	messages             message.Service
 	disableAutoSummarize bool
+	summarizeThreshold   float64
 	isYolo               bool
 	notify               pubsub.Publisher[notify.Notification]
 	runComplete          pubsub.Publisher[notify.RunComplete]
@@ -210,6 +213,7 @@ type SessionAgentOptions struct {
 	SystemPrompt         string
 	IsSubAgent           bool
 	DisableAutoSummarize bool
+	SummarizeThreshold   float64
 	IsYolo               bool
 	Sessions             session.Service
 	Messages             message.Service
@@ -230,6 +234,7 @@ func NewSessionAgent(
 		sessions:             opts.Sessions,
 		messages:             opts.Messages,
 		disableAutoSummarize: opts.DisableAutoSummarize,
+		summarizeThreshold:   opts.SummarizeThreshold,
 		tools:                csync.NewSliceFrom(opts.Tools),
 		isYolo:               opts.IsYolo,
 		notify:               opts.Notify,
@@ -549,6 +554,17 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		return nil, err
 	}
 
+	// Create the agent turn span that wraps the entire turn (LLM calls + tool
+	// executions). Tool call spans created later will become children of this.
+	agentCtx, agentTurnSpan := otel.StartInvokeAgentSpan(ctx, "Crush", call.SessionID)
+	agentCtx = context.WithValue(agentCtx, tools.AgentTurnSpanKey, agentTurnSpan)
+	defer func() {
+		if retErr != nil {
+			otel.RecordError(agentTurnSpan, retErr)
+		}
+		agentTurnSpan.End()
+	}()
+
 	// genCtx/cancel are the run context and its cancel func. For the
 	// accepted (fire-and-forget) dispatch path they are created under
 	// dispatchMu below so a concurrent Cancel can observe the
@@ -615,7 +631,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		// Idle: become the active run. Register the cancel func before
 		// dropping the lock so a Cancel that arrives between here and
 		// assistant creation is not lost.
-		runCtx := context.WithValue(ctx, tools.SessionIDContextKey, call.SessionID)
+		runCtx := context.WithValue(agentCtx, tools.SessionIDContextKey, call.SessionID)
 		genCtx, cancel = context.WithCancel(runCtx)
 		a.activeRequests.Set(call.SessionID, cancel)
 		activeRegistered = true
@@ -680,6 +696,34 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		return nil, fmt.Errorf("failed to get session messages: %w", err)
 	}
 
+	// Estimate the current context window usage from the active messages.
+	// This is used for display and auto-summarization threshold checks.
+	currentTokens := estimateMessageTokensForMessage(msgs)
+	if currentSession.CurrentTokens != currentTokens {
+		currentSession.CurrentTokens = currentTokens
+		if _, saveErr := a.sessions.Save(ctx, currentSession); saveErr != nil {
+			slog.Warn("Failed to save current tokens", "error", saveErr)
+		}
+	}
+
+	// Check if we need to auto-summarize before sending the request.
+	// This prevents context overflow when a large prompt pushes us over the limit.
+	if shouldSummarize(currentSession, largeModel, a.summarizeThreshold, a.disableAutoSummarize) {
+		slog.Debug("Auto-summarizing before request to prevent context overflow", "session_id", call.SessionID)
+		if summaryErr := a.Summarize(ctx, call.SessionID, a.getCacheControlOptions()); summaryErr != nil {
+			slog.Warn("Failed to auto-summarize before request", "error", summaryErr)
+		}
+		// After summarization, re-fetch the session and messages.
+		currentSession, err = a.sessions.Get(ctx, call.SessionID)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get session after summarization: %w", err)
+		}
+		msgs, err = a.getSessionMessages(ctx, currentSession)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get session messages after summarization: %w", err)
+		}
+	}
+
 	var wg sync.WaitGroup
 	// Generate title if first message.
 	if len(msgs) == 0 {
@@ -697,15 +741,42 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	}
 	userMsgCreated = true
 
-	// Add the session to the context.
-	ctx = context.WithValue(ctx, tools.SessionIDContextKey, call.SessionID)
+	// Re-estimate total tokens after adding the user message.
+	// If the total would exceed the context window, force summarization.
+	msgs, err = a.getSessionMessages(ctx, currentSession)
+	if err != nil {
+		return nil, err
+	}
+	totalTokens := estimateMessageTokensForMessage(msgs)
+	cw := int64(largeModel.CatwalkCfg.ContextWindow)
+	if cw > 0 && !a.disableAutoSummarize && totalTokens > cw {
+		slog.Warn("Prompt would exceed context window, forcing summarization", "session_id", call.SessionID, "tokens", totalTokens, "window", cw)
+		if summaryErr := a.Summarize(ctx, call.SessionID, a.getCacheControlOptions()); summaryErr != nil {
+			slog.Warn("Failed to force-summarize before overflow", "error", summaryErr)
+		} else {
+			currentSession, err = a.sessions.Get(ctx, call.SessionID)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get session after forced summarization: %w", err)
+			}
+			msgs, err = a.getSessionMessages(ctx, currentSession)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get session messages after forced summarization: %w", err)
+			}
+		}
+	}
+
+	// Add the session to the agent context so it propagates to genCtx
+	// (created below via context.WithCancel(agentCtx)) and all child contexts
+	// used by tools. Storing in the original ctx parameter would be lost
+	// because genCtx is a child of agentCtx, not ctx.
+	agentCtx = context.WithValue(agentCtx, tools.SessionIDContextKey, call.SessionID)
 
 	// For the accepted dispatch path the run context and cancel func
 	// were already created and registered under dispatchMu above; reuse
 	// them. For the in-process path create them here, preserving the
 	// original ordering.
 	if !activeRegistered {
-		genCtx, cancel = context.WithCancel(ctx)
+		genCtx, cancel = context.WithCancel(agentCtx)
 		a.activeRequests.Set(call.SessionID, cancel)
 
 		defer cancel()
@@ -771,13 +842,16 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		a.publishRunComplete(ctx, call, complete)
 	}()
 
-	history, files := a.preparePrompt(msgs, largeModel.CatwalkCfg.SupportsImages, call.Attachments...)
+	history, files := a.preparePrompt(ctx, msgs, largeModel.CatwalkCfg.SupportsImages, call.Attachments...)
 
 	startTime := time.Now()
 	a.eventPromptSent(call.SessionID)
 
 	var stepMessages []fantasy.Message
 	var shouldSummarize bool
+	// llmSpan is the current LLM call span, set in PrepareStep and ended in
+	// OnStepFinish. It is a child of the agent turn span.
+	var llmSpan trace.Span
 	// Don't send MaxOutputTokens if 0 — some providers (e.g. LM Studio) reject it
 	var maxOutputTokens *int64
 	if call.MaxOutputTokens > 0 {
@@ -795,6 +869,14 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		TopK:             call.TopK,
 		FrequencyPenalty: call.FrequencyPenalty,
 		PrepareStep: func(callContext context.Context, options fantasy.PrepareStepFunctionOptions) (_ context.Context, prepared fantasy.PrepareStepResult, err error) {
+			// Create an LLM call span as a child of the agent turn span.
+			// This span represents a single model API call (chat completion).
+			if agentSpan, ok := callContext.Value(tools.AgentTurnSpanKey).(trace.Span); ok && agentSpan != nil {
+				var llmCtx context.Context
+				llmCtx, llmSpan = otel.StartLLMSpan(callContext, largeModel.ModelCfg.Provider, largeModel.CatwalkCfg.Name)
+				callContext = llmCtx
+			}
+
 			prepared.Messages = options.Messages
 			for i := range prepared.Messages {
 				prepared.Messages[i].ProviderOptions = nil
@@ -803,6 +885,21 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			// Use latest tools (updated by SetTools when MCP tools change).
 			prepared.Tools = a.tools.Copy()
 
+			// see .agents/docs/fixes/FIX-0004-queued-message-duplication.md
+			// this block was removed as part of that fix, keeping commented out here for historic reference
+			// queuedCalls, _ := a.messageQueue.Get(call.SessionID)
+			// a.messageQueue.Del(call.SessionID)
+			// for _, queued := range queuedCalls {
+			//	userMessage, createErr := a.createUserMessage(callContext, queued)
+			//	if createErr != nil {
+			//		return callContext, prepared, createErr
+			//	}
+			//	prepared.Messages = append(prepared.Messages, userMessage.ToAIMessage()...)
+			// }
+
+			// TODO: Test this newh change from upstream. Ensure it isn't still a problem for message duplication.
+			// Seems like it still is. Need to understand more about message cancellation.
+			//
 			// Drain queued follow-up prompts for this step. Calls covered
 			// by a cancel recorded while they sat in the queue are dropped:
 			// a cancel that arrived after a prompt was queued must not let
@@ -844,6 +941,21 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 
 			if promptPrefix != "" {
 				prepared.Messages = append([]fantasy.Message{fantasy.NewSystemMessage(promptPrefix)}, prepared.Messages...)
+			}
+
+			// Set the dynamic system prompt by combining the static system
+			// prompt with any dynamic state (todo list, etc.).
+			dynamic := a.buildDynamicSystemPrompt(call.SessionID)
+			combined := systemPrompt
+			combined += "\n\n<tool-observation-instructions>\nIf you receive a 'Tool Observation' in a tool result message, you are required to analyze the error and adjust your strategy before retrying. Do not repeat the same failed tool call with the same input. Review the tool definition, correct the input parameters, and ensure valid JSON syntax.\n</tool-observation-instructions>"
+			if dynamic != "" {
+				combined += "\n\n<todo_list>\n" + dynamic + "\n</todo_list>"
+			}
+			prepared.System = &combined
+
+			// Propagate goal ID if present in the caller context.
+			if goalID, ok := ctx.Value(goal.GoalIDContextKey).(string); ok {
+				callContext = context.WithValue(callContext, goal.GoalIDContextKey, goalID)
 			}
 
 			sessionLock.Lock()
@@ -924,7 +1036,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			toolCall := message.ToolCall{
 				ID:               tc.ToolCallID,
 				Name:             tc.ToolName,
-				Input:            tc.Input,
+				Input:            sanitizeJSONInput(tc.Input),
 				ProviderExecuted: false,
 				Finished:         true,
 			}
@@ -946,6 +1058,31 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			return createMsgErr
 		},
 		OnStepFinish: func(stepResult fantasy.StepResult) error {
+			// End the LLM call span and record usage data.
+			if llmSpan != nil {
+				// Record token usage from the step result.
+				llmSpan.SetAttributes(
+					attribute.Int64("gen_ai.usage.input_tokens", stepResult.Usage.InputTokens),
+					attribute.Int64("gen_ai.usage.output_tokens", stepResult.Usage.OutputTokens),
+				)
+				// Record finish reason.
+				var finishReason string
+				switch stepResult.FinishReason {
+				case fantasy.FinishReasonStop:
+					finishReason = "stop"
+				case fantasy.FinishReasonLength:
+					finishReason = "length"
+				case fantasy.FinishReasonToolCalls:
+					finishReason = "tool_calls"
+				case fantasy.FinishReasonContentFilter:
+					finishReason = "content_filter"
+				}
+				if finishReason != "" {
+					llmSpan.SetAttributes(attribute.String("gen_ai.response.finish_reason", finishReason))
+				}
+				llmSpan.End()
+				llmSpan = nil
+			}
 			finishReason := message.FinishReasonUnknown
 			switch stepResult.FinishReason {
 			case fantasy.FinishReasonLength:
@@ -977,6 +1114,9 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			}
 			usage, estimated := fallbackStepUsage(stepMessages, stepResult)
 			a.updateSessionUsage(largeModel, &updatedSession, usage, a.openrouterCost(stepResult.ProviderMetadata), estimated)
+			// Update CurrentTokens to reflect the actual context window usage
+			// after the response is received (PromptTokens + CompletionTokens).
+			updatedSession.CurrentTokens = updatedSession.PromptTokens + updatedSession.CompletionTokens
 			_, sessionErr := a.sessions.Save(ctx, updatedSession)
 			if sessionErr != nil {
 				return sessionErr
@@ -986,21 +1126,23 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		},
 		StopWhen: []fantasy.StopCondition{
 			func(_ []fantasy.StepResult) bool {
+				// Use CurrentTokens for the auto-summarization check.
+				// This reflects the actual context window usage, not cumulative tokens.
+				tokens := currentSession.CurrentTokens
+				if tokens == 0 {
+					// Fallback to cumulative tokens if CurrentTokens hasn't been set yet.
+					tokens = currentSession.CompletionTokens + currentSession.PromptTokens
+				}
 				cw := int64(largeModel.CatwalkCfg.ContextWindow)
-				// If context window is unknown (0), skip auto-summarize
-				// to avoid immediately truncating custom/local models.
+				// If context window is unknown (0), skip auto-summarize.
 				if cw == 0 {
 					return false
 				}
-				tokens := currentSession.CompletionTokens + currentSession.PromptTokens
-				remaining := cw - tokens
-				var threshold int64
-				if cw > largeContextWindowThreshold {
-					threshold = largeContextWindowBuffer
-				} else {
-					threshold = int64(float64(cw) * smallContextWindowRatio)
+				if a.summarizeThreshold <= 0 {
+					a.summarizeThreshold = 0.8 // Default 80%
 				}
-				if (remaining <= threshold) && !a.disableAutoSummarize {
+				fraction := float64(tokens) / float64(cw)
+				if fraction >= a.summarizeThreshold && !a.disableAutoSummarize {
 					shouldSummarize = true
 					return true
 				}
@@ -1008,6 +1150,12 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			},
 			func(steps []fantasy.StepResult) bool {
 				return hasRepeatedToolCalls(steps, loopDetectionWindowSize, loopDetectionMaxRepeats)
+			},
+			func(steps []fantasy.StepResult) bool {
+				return hasRepeatedThinking(steps)
+			},
+			func(steps []fantasy.StepResult) bool {
+				return hasConsecutiveToolFailures(steps)
 			},
 		},
 	})
@@ -1249,6 +1397,17 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		}
 	}
 	firstQueuedMessage := queuedMessages[0]
+	// Create all queued user messages in the DB so the recursive call's
+	// getSessionMessages / preparePrompt picks them up as part of the
+	// conversation history.  This avoids the old bug where PrepareStep
+	// appended queued messages to the API history *and* the recursive call
+	// re-fetched them from the DB, sending duplicates each turn.
+	for _, queued := range queuedMessages {
+		_, err := a.createUserMessage(ctx, queued)
+		if err != nil {
+			slog.Error("Failed to create queued user message", "error", err)
+		}
+	}
 	a.messageQueue.Set(call.SessionID, queuedMessages[1:])
 	// Reserve a fresh accept for the dequeued prompt before dropping the
 	// lock so acceptedRuns > 0 across the handoff into the recursive
@@ -1294,7 +1453,7 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fan
 		return nil
 	}
 
-	aiMsgs, _ := a.preparePrompt(msgs, largeModel.CatwalkCfg.SupportsImages)
+	aiMsgs, _ := a.preparePrompt(ctx, msgs, largeModel.CatwalkCfg.SupportsImages)
 
 	genCtx, cancel := context.WithCancel(ctx)
 	a.activeRequests.Set(sessionID, cancel)
@@ -1395,6 +1554,9 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fan
 	currentSession.CompletionTokens = summaryCompletionTokens(usage, summaryMessage)
 	currentSession.PromptTokens = 0
 	currentSession.EstimatedUsage = usageIsZero(usage)
+	// After summarization, set CurrentTokens to the truncated context size.
+	// We estimate from the summary message content.
+	currentSession.CurrentTokens = currentSession.CompletionTokens + approxTokenCount(summaryMessage.Content().Text)
 	_, err = a.sessions.Save(genCtx, currentSession)
 	if err != nil {
 		return err
@@ -1440,6 +1602,24 @@ func (a *sessionAgent) createUserMessage(ctx context.Context, call SessionAgentC
 		attachmentParts = append(attachmentParts, message.BinaryContent{Path: attachment.FilePath, MIMEType: attachment.MimeType, Data: attachment.Content})
 	}
 	parts = append(parts, attachmentParts...)
+
+	// Idempotency: if a user message with the same text content already
+	// exists in the session, return it instead of creating a duplicate.
+	// This can happen when queued messages are persisted before a recursive
+	// Run() call, and that recursive call also tries to create the message.
+	msgs, err := a.messages.List(ctx, call.SessionID)
+	if err == nil {
+		for _, m := range msgs {
+			if m.Role == message.User {
+				for _, p := range m.Parts {
+					if tc, ok := p.(message.TextContent); ok && tc.Text == call.Prompt {
+						return m, nil
+					}
+				}
+			}
+		}
+	}
+
 	msg, err := a.messages.Create(ctx, call.SessionID, message.CreateMessageParams{
 		Role:  message.User,
 		Parts: parts,
@@ -1450,18 +1630,26 @@ func (a *sessionAgent) createUserMessage(ctx context.Context, call SessionAgentC
 	return msg, nil
 }
 
-func (a *sessionAgent) preparePrompt(msgs []message.Message, supportsImages bool, attachments ...message.Attachment) ([]fantasy.Message, []fantasy.FilePart) {
-	var history []fantasy.Message
-	if !a.isSubAgent {
-		history = append(history, fantasy.NewUserMessage(
-			fmt.Sprintf(
-				"<system_reminder>%s</system_reminder>",
-				`This is a reminder that your todo list is currently empty. DO NOT mention this to the user explicitly because they are already aware.
-If you are working on tasks that would benefit from a todo list please use the "todos" tool to create one.
-If not, please feel free to ignore. Again do not mention this message to the user.`,
-			),
-		))
+func (a *sessionAgent) preparePrompt(ctx context.Context, msgs []message.Message, supportsImages bool, attachments ...message.Attachment) ([]fantasy.Message, []fantasy.FilePart) {
+	// When the strip-last-tool-call flag is set (used as a 400 Bad Request
+	// recovery path), identify the last assistant message with tool calls
+	// so we can skip its tool call parts.
+	var skipLastToolCallID string
+	if IsStripLastToolCall(ctx) {
+		for i := len(msgs) - 1; i >= 0; i-- {
+			if msgs[i].Role == message.Assistant && len(msgs[i].ToolCalls()) > 0 {
+				skipLastToolCallID = msgs[i].ToolCalls()[len(msgs[i].ToolCalls())-1].ID
+				slog.Info("Stripping last tool call from conversation history (400 Bad Request recovery)",
+					"tool_call_id", skipLastToolCallID,
+					"tool_name", msgs[i].ToolCalls()[len(msgs[i].ToolCalls())-1].Name,
+					"session_id", msgs[i].SessionID,
+				)
+				break
+			}
+		}
 	}
+
+	var history []fantasy.Message
 	// Collect all tool call IDs present in assistant messages and all tool
 	// result IDs present in tool messages. This lets us detect both orphaned
 	// tool results (result without a call) and orphaned tool calls (call
@@ -1489,6 +1677,12 @@ If not, please feel free to ignore. Again do not mention this message to the use
 		if m.Role == message.Assistant && len(m.ToolCalls()) == 0 && m.Content().Text == "" && m.ReasoningContent().String() == "" {
 			continue
 		}
+		// Skip assistant messages that ended in an error — their partial
+		// content is already visible to the user and sending it back to the
+		// model causes it to repeat the failed response on the next turn.
+		if m.Role == message.Assistant && m.FinishReason() == message.FinishReasonError {
+			continue
+		}
 		if m.Role == message.Tool {
 			if msg, ok := filterOrphanedToolResults(m, knownToolCallIDs); ok {
 				history = append(history, msg)
@@ -1496,6 +1690,18 @@ If not, please feel free to ignore. Again do not mention this message to the use
 			continue
 		}
 		aiMsgs := m.ToAIMessage()
+		// When recovering from a persistent 400 Bad Request, skip the
+		// last assistant tool call whose input is malformed JSON.
+		if skipLastToolCallID != "" {
+			for i := range aiMsgs {
+				for j := range aiMsgs[i].Content {
+					if tc, ok := fantasy.AsMessagePart[fantasy.ToolCallPart](aiMsgs[i].Content[j]); ok && tc.ToolCallID == skipLastToolCallID {
+						aiMsgs[i].Content = append(aiMsgs[i].Content[:j], aiMsgs[i].Content[j+1:]...)
+						break
+					}
+				}
+			}
+		}
 		if !supportsImages {
 			for i := range aiMsgs {
 				if aiMsgs[i].Role == fantasy.MessageRoleUser {
@@ -1512,6 +1718,14 @@ If not, please feel free to ignore. Again do not mention this message to the use
 		}
 	}
 
+	// Deduplicate reasoning content from consecutive assistant messages.
+	// When the model gets stuck in a thinking loop, the same reasoning text
+	// can appear in multiple consecutive assistant messages. Sending all of
+	// them to the API wastes context window and can cause the model to
+	// double down on the loop. We keep the first occurrence and strip
+	// duplicates from subsequent messages.
+	history = a.deduplicateReasoning(history)
+
 	var files []fantasy.FilePart
 	for _, attachment := range attachments {
 		if attachment.IsText() {
@@ -1525,6 +1739,46 @@ If not, please feel free to ignore. Again do not mention this message to the use
 	}
 
 	return history, files
+}
+
+// deduplicateReasoning removes duplicated reasoning content from consecutive
+// assistant messages. When the model gets stuck in a thinking loop, the same
+// reasoning text can appear in multiple consecutive assistant messages.
+// Sending all of them to the API wastes context window and can cause the
+// model to double down on the loop.
+//
+// This function keeps the first occurrence of each reasoning block and strips
+// duplicates from subsequent assistant messages.
+func (a *sessionAgent) deduplicateReasoning(messages []fantasy.Message) []fantasy.Message {
+	// Track the last seen reasoning text across assistant messages.
+	var lastReasoning string
+
+	for i := range messages {
+		if messages[i].Role != fantasy.MessageRoleAssistant {
+			// Non-assistant message breaks the chain.
+			lastReasoning = ""
+			continue
+		}
+
+		// Build a new content slice without duplicated reasoning.
+		var kept []fantasy.MessagePart
+		for _, part := range messages[i].Content {
+			if rp, ok := fantasy.AsMessagePart[fantasy.ReasoningPart](part); ok {
+				// Skip reasoning that matches the last seen.
+				if rp.Text == lastReasoning && lastReasoning != "" {
+					continue
+				}
+				// Update the last seen reasoning text.
+				if rp.Text != "" {
+					lastReasoning = rp.Text
+				}
+			}
+			kept = append(kept, part)
+		}
+		messages[i].Content = kept
+	}
+
+	return messages
 }
 
 // filterFileParts removes fantasy.FilePart entries from a slice of message
@@ -1998,7 +2252,57 @@ func (a *sessionAgent) convertToToolResult(result fantasy.ToolResultContent) mes
 	return baseResult
 }
 
-// workaroundProviderMediaLimitations converts media content in tool results to
+// sanitizeJSONInput strips extra characters after the closing brace/bracket of a JSON
+// object or array. vLLM's tool call parser (especially with --tool-call-parser qwen3_xml)
+// can produce malformed output like `{"key": "value"} }` or `{"key": "value"}
+// extra text`. This function extracts only the valid JSON prefix so the model
+// can parse it on the next turn without triggering a 400 Bad Request.
+// The result is validated as parseable JSON; if it isn't, the original string
+// is returned unchanged (the caller's retry logic will handle it).
+func sanitizeJSONInput(s string) string {
+	if s == "" {
+		return s
+	}
+	// Find the last closing brace/bracket that completes a valid JSON
+	// object or array.
+	// We scan for the first `}` or `]` that balances all opening braces/brackets.
+	depth := 0
+	inString := false
+	escape := false
+	for i, r := range s {
+		switch {
+		case escape:
+			escape = false
+		case r == '\\':
+			escape = true
+		case r == '"':
+			inString = !inString
+		case !inString:
+			switch r {
+			case '{', '[':
+				depth++
+			case '}', ']':
+				depth--
+				if depth == 0 {
+					// Found the matching close brace/bracket — validate
+					// the result is actually parseable JSON.
+					candidate := s[:i+1]
+					if json.Valid([]byte(candidate)) {
+						return candidate
+					}
+					// Sanitized output is not valid JSON; fall through
+					// and return a minimal valid object so the retry
+					// doesn't waste a turn sending the same bad data.
+				}
+			}
+		}
+	}
+	// Could not find valid JSON — return a minimal valid object so the
+	// provider accepts the retry and the model can recover without needing
+	// the strip fallback.
+	return "{}"
+}
+
 // user messages for providers that don't natively support images in tool results.
 //
 // Problem: OpenAI, Google, OpenRouter, and other OpenAI-compatible providers
@@ -2118,4 +2422,134 @@ func providerRetryLogFields(err *fantasy.ProviderError, delay time.Duration) []a
 		fields = append(fields, "message", err.Message)
 	}
 	return fields
+}
+
+// shouldSummarize returns true if the session should be auto-summarized
+// based on the current context window usage and the configured threshold.
+func shouldSummarize(session session.Session, model Model, threshold float64, disabled bool) bool {
+	if disabled {
+		return false
+	}
+	cw := int64(model.CatwalkCfg.ContextWindow)
+	if cw == 0 {
+		return false
+	}
+	tokens := session.CurrentTokens
+	if tokens == 0 {
+		// Fallback to cumulative tokens if CurrentTokens hasn't been set yet.
+		tokens = session.CompletionTokens + session.PromptTokens
+	}
+	if threshold <= 0 {
+		threshold = 0.8 // Default 80%
+	}
+	fraction := float64(tokens) / float64(cw)
+	return fraction >= threshold
+}
+
+// estimateMessageTokensForMessage estimates the token count for a list of
+// message.Message (not fantasy.Message). It uses the same approximation as the
+// fallback token counter.
+func estimateMessageTokensForMessage(msgs []message.Message) int64 {
+	var tokens int64
+	for _, m := range msgs {
+		tokens += approxTokenCount(string(m.Role))
+		for _, part := range m.Parts {
+			tokens += estimateMessagePartTokensForMessage(part)
+		}
+	}
+	return tokens
+}
+
+// estimateMessagePartTokensForMessage estimates the token count for a message
+// content part (message package types).
+func estimateMessagePartTokensForMessage(part message.ContentPart) int64 {
+	switch p := part.(type) {
+	case message.TextContent:
+		return approxTokenCount(p.Text)
+	case *message.TextContent:
+		return approxTokenCount(p.Text)
+	case message.ReasoningContent:
+		return approxTokenCount(p.String())
+	case *message.ReasoningContent:
+		return approxTokenCount(p.String())
+	case message.BinaryContent:
+		return estimateMediaTokensForMessage(p.MIMEType, "", len(p.Data))
+	case *message.BinaryContent:
+		return estimateMediaTokensForMessage(p.MIMEType, "", len(p.Data))
+	case message.ToolCall:
+		return approxTokenCount(p.ID) + approxTokenCount(p.Name) + approxTokenCount(p.Input)
+	case *message.ToolCall:
+		return approxTokenCount(p.ID) + approxTokenCount(p.Name) + approxTokenCount(p.Input)
+	case message.ToolResult:
+		return approxTokenCount(p.ToolCallID) + approxTokenCount(p.Name) + approxTokenCount(p.Content)
+	case *message.ToolResult:
+		return approxTokenCount(p.ToolCallID) + approxTokenCount(p.Name) + approxTokenCount(p.Content)
+	case message.Finish:
+		return 0
+	case *message.Finish:
+		return 0
+	default:
+		return 0
+	}
+}
+
+// estimateMediaTokensForMessage estimates the token count for media content.
+func estimateMediaTokensForMessage(mediaType, text string, dataBytes int) int64 {
+	if dataBytes == 0 {
+		return approxTokenCount(mediaType) + approxTokenCount(text)
+	}
+	return approxTokenCount(fmt.Sprintf("%s %s %d bytes", mediaType, text, dataBytes))
+}
+
+// buildDynamicSystemPrompt returns dynamic system-level content that should
+// be injected into the system prompt on every turn (e.g. todo list state).
+// It is safe to call on every Run() and never panics.
+func (a *sessionAgent) buildDynamicSystemPrompt(sessionID string) string {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("buildDynamicSystemPrompt panicked, using fallback", "recover", r)
+		}
+	}()
+
+	sess, err := a.sessions.Get(context.Background(), sessionID)
+	if err != nil {
+		slog.Warn("Failed to get session for dynamic system prompt, using fallback", "error", err)
+		return ""
+	}
+
+	if len(sess.Todos) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+	for i, todo := range sess.Todos {
+		if todo.Status == session.TodoStatusCompleted {
+			continue
+		}
+		safe := sanitize(todo.Content)
+		sb.WriteString(fmt.Sprintf("%d. %s (%s)\n", i+1, safe, todo.ActiveForm))
+	}
+
+	result := strings.TrimSpace(sb.String())
+	if result == "" {
+		return ""
+	}
+
+	maxLen := 2000
+	if len(result) > maxLen {
+		result = result[:maxLen] + "\n[truncated, some items omitted]"
+	}
+
+	return result
+}
+
+// sanitize strips non-printable characters from s, preserving newlines and tabs.
+func sanitize(s string) string {
+	var out []rune
+	for _, r := range s {
+		if unicode.IsPrint(r) || r == '\n' || r == '\t' {
+			out = append(out, r)
+		}
+	}
+	return string(out)
 }

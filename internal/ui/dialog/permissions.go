@@ -322,7 +322,7 @@ func (p *Permissions) respond(action PermissionAction) tea.Msg {
 
 func (p *Permissions) hasDiffView() bool {
 	switch p.permission.ToolName {
-	case tools.EditToolName, tools.WriteToolName, tools.MultiEditToolName:
+	case tools.EditToolName, tools.WriteToolName, tools.MultiEditToolName, tools.AppendToolName:
 		return true
 	}
 	return false
@@ -480,6 +480,8 @@ func (p *Permissions) renderHeader(contentWidth int) string {
 			filePath = params.FilePath
 		case tools.ViewPermissionsParams:
 			filePath = params.FilePath
+		case tools.AppendPermissionsParams:
+			filePath = params.FilePath
 		}
 		if filePath != "" {
 			lines = append(lines, p.renderKeyValue("File", fsext.PrettyPath(filePath), contentWidth))
@@ -535,6 +537,8 @@ func (p *Permissions) renderContent(width int) string {
 		return p.renderEditContent(width)
 	case tools.WriteToolName:
 		return p.renderWriteContent(width)
+	case tools.AppendToolName:
+		return p.renderAppendContent(width)
 	case tools.MultiEditToolName:
 		return p.renderMultiEditContent(width)
 	case tools.DownloadToolName:
@@ -571,6 +575,14 @@ func (p *Permissions) renderEditContent(contentWidth int) string {
 
 func (p *Permissions) renderWriteContent(contentWidth int) string {
 	params, ok := p.permission.Params.(tools.WritePermissionsParams)
+	if !ok {
+		return ""
+	}
+	return p.renderDiff(params.FilePath, params.OldContent, params.NewContent, contentWidth)
+}
+
+func (p *Permissions) renderAppendContent(contentWidth int) string {
+	params, ok := p.permission.Params.(tools.AppendPermissionsParams)
 	if !ok {
 		return ""
 	}

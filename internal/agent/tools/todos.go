@@ -6,7 +6,9 @@ import (
 	"fmt"
 
 	"charm.land/fantasy"
+	"github.com/charmbracelet/crush/internal/otel"
 	"github.com/charmbracelet/crush/internal/session"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 //go:embed todos.md
@@ -38,6 +40,13 @@ func NewTodosTool(sessions session.Service) fantasy.AgentTool {
 		TodosToolName,
 		todosDescription,
 		func(ctx context.Context, params TodosParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			ctx, span := otel.StartSpan(ctx, "execute_tool todos")
+			defer span.End()
+			span.SetAttributes(
+				attribute.String("gen_ai.tool.name", TodosToolName),
+				attribute.String("gen_ai.tool.call.id", call.ID),
+				attribute.String("gen_ai.tool.call.arguments", call.Input),
+			)
 			sessionID := GetSessionFromContext(ctx)
 			if sessionID == "" {
 				return fantasy.ToolResponse{}, fmt.Errorf("session ID is required for managing todos")

@@ -12,7 +12,9 @@ import (
 
 	"charm.land/fantasy"
 	"github.com/charmbracelet/crush/internal/lsp"
+	"github.com/charmbracelet/crush/internal/otel"
 	"github.com/charmbracelet/x/powernap/pkg/lsp/protocol"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type DiagnosticsParams struct {
@@ -29,6 +31,13 @@ func NewDiagnosticsTool(lspManager *lsp.Manager) fantasy.AgentTool {
 		DiagnosticsToolName,
 		diagnosticsDescription,
 		func(ctx context.Context, params DiagnosticsParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			ctx, span := otel.StartSpan(ctx, "execute_tool diagnostics")
+			defer span.End()
+			span.SetAttributes(
+				attribute.String("gen_ai.tool.name", DiagnosticsToolName),
+				attribute.String("gen_ai.tool.call.id", call.ID),
+				attribute.String("gen_ai.tool.call.arguments", call.Input),
+			)
 			if lspManager.Clients().Len() == 0 {
 				return fantasy.NewTextErrorResponse("no LSP clients available"), nil
 			}

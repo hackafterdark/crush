@@ -24,8 +24,8 @@ import (
 	"github.com/charmbracelet/crush/internal/filepathext"
 	"github.com/charmbracelet/crush/internal/fsext"
 	"github.com/charmbracelet/crush/internal/home"
+	"github.com/charmbracelet/crush/internal/jsonmerge"
 	powernapConfig "github.com/charmbracelet/x/powernap/pkg/config"
-	"github.com/qjebbs/go-jsons"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -410,6 +410,36 @@ func (c *Config) configureProviders(store *ConfigStore, env env.Env, resolver Va
 	return nil
 }
 
+func safeDataDir(workingDir, dataDir string) (string, bool) {
+	if dataDir == "" {
+		return "", false
+	}
+
+	baseAbs, err := filepath.Abs(workingDir)
+	if err != nil {
+		return "", false
+	}
+
+	candidate := dataDir
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(baseAbs, candidate)
+	}
+	candidateAbs, err := filepath.Abs(candidate)
+	if err != nil {
+		return "", false
+	}
+
+	rel, err := filepath.Rel(baseAbs, candidateAbs)
+	if err != nil {
+		return "", false
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+
+	return filepath.Clean(candidateAbs), true
+}
+
 func (c *Config) setDefaults(workingDir, dataDir string) {
 	if c.Options == nil {
 		c.Options = &Options{}
@@ -417,8 +447,8 @@ func (c *Config) setDefaults(workingDir, dataDir string) {
 	if c.Options.TUI == nil {
 		c.Options.TUI = &TUIOptions{}
 	}
-	if dataDir != "" {
-		c.Options.DataDirectory = dataDir
+	if safeDir, ok := safeDataDir(workingDir, dataDir); ok {
+		c.Options.DataDirectory = safeDir
 	} else if c.Options.DataDirectory == "" {
 		if path, ok := fsext.LookupClosestBounded(workingDir, projectBoundary(workingDir), defaultDataDirectory); ok {
 			c.Options.DataDirectory = path
@@ -785,8 +815,9 @@ func loadFromBytes(configs [][]byte) (*Config, error) {
 		return &Config{}, nil
 	}
 
-	data, err := jsons.Merge(configs)
+	data, err := jsonmerge.Merge(configs...)
 	if err != nil {
+		slog.Error("Could not merge config", "err", err, "input_count", len(configs))
 		return nil, err
 	}
 	var config Config

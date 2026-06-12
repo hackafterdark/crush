@@ -60,6 +60,7 @@ type Session struct {
 	Todos            []Todo
 	CreatedAt        int64
 	UpdatedAt        int64
+	CurrentTokens    int64
 }
 
 type Service interface {
@@ -208,6 +209,7 @@ func (s *service) Save(ctx context.Context, session Session) (Session, error) {
 			String: todosJSON,
 			Valid:  todosJSON != "",
 		},
+		CurrentTokens: session.CurrentTokens,
 	})
 	if err != nil {
 		return Session{}, err
@@ -293,6 +295,7 @@ func (s *service) fromDBItem(item db.Session) Session {
 		Todos:            todos,
 		CreatedAt:        item.CreatedAt,
 		UpdatedAt:        item.UpdatedAt,
+		CurrentTokens:    item.CurrentTokens,
 	}
 }
 

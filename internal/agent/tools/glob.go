@@ -16,6 +16,8 @@ import (
 	"charm.land/fantasy"
 	"github.com/charmbracelet/crush/internal/filepathext"
 	"github.com/charmbracelet/crush/internal/fsext"
+	"github.com/charmbracelet/crush/internal/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const GlobToolName = "glob"
@@ -53,6 +55,13 @@ func NewGlobTool(workingDir string) fantasy.AgentTool {
 		GlobToolName,
 		globDescription(),
 		func(ctx context.Context, params GlobParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			ctx, span := otel.StartSpan(ctx, "execute_tool glob")
+			defer span.End()
+			span.SetAttributes(
+				attribute.String("gen_ai.tool.name", GlobToolName),
+				attribute.String("gen_ai.tool.call.id", call.ID),
+				attribute.String("gen_ai.tool.call.arguments", call.Input),
+			)
 			if params.Pattern == "" {
 				return fantasy.NewTextErrorResponse("pattern is required"), nil
 			}

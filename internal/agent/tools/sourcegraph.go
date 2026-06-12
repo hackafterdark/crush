@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"charm.land/fantasy"
+	"github.com/charmbracelet/crush/internal/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type SourcegraphParams struct {
@@ -63,6 +65,13 @@ func NewSourcegraphTool(client *http.Client) fantasy.AgentTool {
 		SourcegraphToolName,
 		sourcegraphDescription(),
 		func(ctx context.Context, params SourcegraphParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			ctx, span := otel.StartSpan(ctx, "execute_tool sourcegraph")
+			defer span.End()
+			span.SetAttributes(
+				attribute.String("gen_ai.tool.name", SourcegraphToolName),
+				attribute.String("gen_ai.tool.call.id", call.ID),
+				attribute.String("gen_ai.tool.call.arguments", call.Input),
+			)
 			if params.Query == "" {
 				return fantasy.NewTextErrorResponse("Query parameter is required"), nil
 			}

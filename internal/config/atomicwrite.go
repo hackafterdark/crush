@@ -3,6 +3,8 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
+	"time"
 )
 
 // atomicWriteFile writes data to a file atomically by writing to a unique
@@ -30,9 +32,23 @@ func atomicWriteFile(path string, data []byte, perm os.FileMode) error {
 		os.Remove(tmp)
 		return err
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		os.Remove(tmp)
-		return err
+	// On Windows, os.Rename can fail with "Access is denied" when multiple
+	// writers race in the same directory. Retry a few times with a short
+	// back-off to work around the issue.
+	retries := 3
+	if runtime.GOOS == "windows" {
+		retries = 5
+	}
+	for i := 0; i < retries; i++ {
+		if err := os.Rename(tmp, path); err != nil {
+			if i < retries-1 {
+				time.Sleep(time.Millisecond * 50)
+				continue
+			}
+			os.Remove(tmp)
+			return err
+		}
+		return nil
 	}
 	return nil
 }

@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"runtime"
 	"testing"
 
 	"charm.land/fantasy"
@@ -60,6 +61,9 @@ func TestBashTool_DefaultAutoBackgroundThreshold(t *testing.T) {
 }
 
 func TestBashTool_CustomAutoBackgroundThreshold(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("sleep is not available on Windows")
+	}
 	workingDir := t.TempDir()
 	tool := newBashToolForTest(workingDir)
 	ctx := context.WithValue(context.Background(), SessionIDContextKey, "test-session")

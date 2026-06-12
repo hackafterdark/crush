@@ -46,6 +46,118 @@ func (m *mockSessionAgent) Summarize(context.Context, string, fantasy.ProviderOp
 	return nil
 }
 
+func TestIsBadRequest(t *testing.T) {
+	t.Parallel()
+
+	c := &coordinator{}
+
+	// BadRequest error should be detected
+	badReqErr := &fantasy.ProviderError{StatusCode: 400, Message: "context overflow"}
+	require.True(t, c.isBadRequest(badReqErr))
+
+	// Unauthorized error should not be detected as BadRequest
+	unauthErr := &fantasy.ProviderError{StatusCode: 401, Message: "unauthorized"}
+	require.False(t, c.isBadRequest(unauthErr))
+
+	// Other errors should not be detected as BadRequest
+	otherErr := &fantasy.ProviderError{StatusCode: 500, Message: "internal error"}
+	require.False(t, c.isBadRequest(otherErr))
+
+	// Non-provider errors should not be detected as BadRequest
+	require.False(t, c.isBadRequest(errors.New("some error")))
+	require.False(t, c.isBadRequest(nil))
+}
+
+func TestIsUnauthorized(t *testing.T) {
+	t.Parallel()
+
+	c := &coordinator{}
+
+	// Unauthorized error should be detected
+	unauthErr := &fantasy.ProviderError{StatusCode: 401, Message: "unauthorized"}
+	require.True(t, c.isUnauthorized(unauthErr))
+
+	// BadRequest error should not be detected as Unauthorized
+	badReqErr := &fantasy.ProviderError{StatusCode: 400, Message: "bad request"}
+	require.False(t, c.isUnauthorized(badReqErr))
+
+	// Other errors should not be detected as Unauthorized
+	otherErr := &fantasy.ProviderError{StatusCode: 500, Message: "internal error"}
+	require.False(t, c.isUnauthorized(otherErr))
+
+	// Non-provider errors should not be detected as Unauthorized
+	require.False(t, c.isUnauthorized(errors.New("some error")))
+	require.False(t, c.isUnauthorized(nil))
+}
+
+func TestCoordinator_IsBadRequest(t *testing.T) {
+	t.Parallel()
+
+	c := &coordinator{}
+
+	// Recoverable 400 errors should be detected.
+	recoverableCases := []string{
+		"context overflow",
+		"max context length exceeded",
+		"tool call failed",
+		"malformed output",
+		"invalid json in tool call",
+		"too long input",
+		"response overflow",
+	}
+	for _, msg := range recoverableCases {
+		err := &fantasy.ProviderError{StatusCode: 400, Message: msg}
+		require.True(t, c.isBadRequest(err), "expected isBadRequest=true for message: %q", msg)
+	}
+
+	// Non-recoverable 400 errors should NOT be detected.
+	nonRecoverableCases := []string{
+		"bad request",
+		"model not found",
+		"invalid parameter",
+		"unsupported model",
+		"permission denied",
+	}
+	for _, msg := range nonRecoverableCases {
+		err := &fantasy.ProviderError{StatusCode: 400, Message: msg}
+		require.False(t, c.isBadRequest(err), "expected isBadRequest=false for message: %q", msg)
+	}
+
+	// Unauthorized error should not be detected as BadRequest
+	unauthErr := &fantasy.ProviderError{StatusCode: 401, Message: "unauthorized"}
+	require.False(t, c.isBadRequest(unauthErr))
+
+	// Other errors should not be detected as BadRequest
+	otherErr := &fantasy.ProviderError{StatusCode: 500, Message: "internal error"}
+	require.False(t, c.isBadRequest(otherErr))
+
+	// Non-provider errors should not be detected as BadRequest
+	require.False(t, c.isBadRequest(errors.New("some error")))
+	require.False(t, c.isBadRequest(nil))
+}
+
+func TestCoordinator_IsUnauthorized(t *testing.T) {
+	t.Parallel()
+
+	c := &coordinator{}
+
+	// Unauthorized error should be detected
+	unauthErr := &fantasy.ProviderError{StatusCode: 401, Message: "unauthorized"}
+	require.True(t, c.isUnauthorized(unauthErr))
+
+	// BadRequest error should not be detected as Unauthorized
+	badReqErr := &fantasy.ProviderError{StatusCode: 400, Message: "bad request"}
+	require.False(t, c.isUnauthorized(badReqErr))
+
+	// Other errors should not be detected as Unauthorized
+	otherErr := &fantasy.ProviderError{StatusCode: 500, Message: "internal error"}
+	require.False(t, c.isUnauthorized(otherErr))
+
+	// Non-provider errors should not be detected as Unauthorized
+	require.False(t, c.isUnauthorized(errors.New("some error")))
+	require.False(t, c.isUnauthorized(nil))
+}
+
 // newTestCoordinator creates a minimal coordinator for unit testing runSubAgent.
 func newTestCoordinator(t *testing.T, env fakeEnv, providerID string, providerCfg config.ProviderConfig) *coordinator {
 	cfg, err := config.Init(env.workingDir, "", false)

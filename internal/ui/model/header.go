@@ -7,6 +7,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/fsext"
+	"github.com/charmbracelet/crush/internal/goal"
 	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/ui/common"
 	"github.com/charmbracelet/crush/internal/ui/styles"
@@ -70,6 +71,7 @@ func (h *header) drawHeader(
 	detailsOpen bool,
 	width int,
 	hyperCredits *int,
+	currentGoal *goal.Goal,
 ) {
 	t := h.com.Styles
 	if width != h.width || compact != h.compact {
@@ -103,6 +105,7 @@ func (h *header) drawHeader(
 		detailsOpen,
 		availDetailWidth,
 		hyperCredits,
+		currentGoal,
 	)
 
 	remainingWidth := width -
@@ -135,6 +138,7 @@ func renderHeaderDetails(
 	detailsOpen bool,
 	availWidth int,
 	hyperCredits *int,
+	currentGoal *goal.Goal,
 ) string {
 	t := com.Styles
 
@@ -147,7 +151,11 @@ func renderHeaderDetails(
 	agentCfg := com.Config().Agents[config.AgentCoder]
 	model := com.Config().GetModelByType(agentCfg.Model)
 	if model != nil && model.ContextWindow > 0 {
-		percentage := (float64(session.CompletionTokens+session.PromptTokens) / float64(model.ContextWindow)) * 100
+		tokens := session.CurrentTokens
+		if tokens == 0 {
+			tokens = session.PromptTokens + session.CompletionTokens
+		}
+		percentage := (float64(tokens) / float64(model.ContextWindow)) * 100
 		percentageText := fmt.Sprintf("%d%%", int(percentage))
 		if session.EstimatedUsage {
 			percentageText = "~" + percentageText
@@ -166,6 +174,12 @@ func renderHeaderDetails(
 		parts = append(parts, t.Header.Keystroke.Render(keystroke)+t.Header.KeystrokeTip.Render(" close"))
 	} else {
 		parts = append(parts, t.Header.Keystroke.Render(keystroke)+t.Header.KeystrokeTip.Render(" open "))
+	}
+
+	if currentGoal != nil {
+		status := string(currentGoal.Status)
+		goalPart := t.Header.Percentage.Render("Goal: ") + t.Header.WorkingDir.Render(currentGoal.Objective) + t.Header.Percentage.Render(fmt.Sprintf(" (%s)", status))
+		parts = append(parts, goalPart)
 	}
 
 	dot := t.Header.Separator.Render(" • ")

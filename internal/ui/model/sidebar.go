@@ -43,16 +43,32 @@ func (m *UI) modelInfo(width int) string {
 
 	var modelContext *common.ModelContextInfo
 	if model != nil && m.session != nil {
+		tokens := m.session.CurrentTokens
+		if tokens == 0 {
+			tokens = m.session.PromptTokens + m.session.CompletionTokens
+		}
+		contextWindow := model.CatwalkCfg.ContextWindow
+		// Fall back to config lookup when the coordinator's model
+		// has a zero context window (e.g. provider model list not
+		// populated by catwalk scripts).
+		if contextWindow == 0 {
+			if cfgModel := m.com.Config().GetModel(model.ModelCfg.Provider, model.ModelCfg.Model); cfgModel != nil {
+				contextWindow = cfgModel.ContextWindow
+			}
+		}
 		modelContext = &common.ModelContextInfo{
-			ContextUsed:    m.session.CompletionTokens + m.session.PromptTokens,
+			ContextUsed:    tokens,
 			Cost:           m.session.Cost,
-			ModelContext:   model.CatwalkCfg.ContextWindow,
+			ModelContext:   model.CatwalkCfg.ContextWindow, // contextWindow,
 			EstimatedUsage: m.session.EstimatedUsage,
 		}
 	}
 	var modelName string
 	if model != nil {
 		modelName = model.CatwalkCfg.Name
+		if modelName == "" {
+			modelName = model.ModelCfg.Model
+		}
 	}
 	return common.ModelInfo(m.com.Styles, modelName, providerName, reasoningInfo, modelContext, width, m.hyperCredits)
 }
@@ -128,6 +144,20 @@ func getDynamicHeightLimits(availableHeight, fileCount, lspCount, mcpCount, skil
 
 // sidebar renders the chat sidebar containing session title, working
 // directory, model info, file list, LSP status, and MCP status.
+func (m *UI) goalInfo(width int) string {
+	if m.currentGoal == nil {
+		return ""
+	}
+	t := m.com.Styles
+	status := string(m.currentGoal.Status)
+	header := t.Sidebar.SectionHeader.Render("GOAL (" + status + ")")
+	objective := t.Sidebar.SessionTitle.
+		Foreground(t.Sidebar.WorkingDir.GetForeground()).
+		Width(width).
+		Render(m.currentGoal.Objective)
+	return lipgloss.JoinVertical(lipgloss.Left, header, objective)
+}
+
 func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 	if m.session == nil {
 		return
@@ -154,6 +184,8 @@ func (m *UI) drawSidebar(scr uv.Screen, area uv.Rectangle) {
 		cwd,
 		"",
 		m.modelInfo(width),
+		"",
+		m.goalInfo(width),
 		"",
 	}
 

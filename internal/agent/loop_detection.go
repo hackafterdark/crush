@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"io"
+	"strings"
 
 	"charm.land/fantasy"
 )
@@ -11,6 +12,9 @@ import (
 const (
 	loopDetectionWindowSize = 10
 	loopDetectionMaxRepeats = 5
+	reasoningLoopWindowSize = 5
+	reasoningLoopMaxRepeats = 2
+	toolFailureMaxCount     = 2
 )
 
 // hasRepeatedToolCalls checks whether the agent is stuck in a loop by looking
@@ -89,4 +93,150 @@ func toolResultOutputString(result fantasy.ToolResultOutputContent) string {
 		return media.Data
 	}
 	return ""
+}
+
+// isReasoningOnlyStep returns the reasoning text from a step if the step
+// contains only reasoning content (no tool calls and no final text).
+// It returns the combined reasoning text and true if the step is reasoning-only,
+// or an empty string and false otherwise.
+func isReasoningOnlyStep(content fantasy.ResponseContent) (string, bool) {
+	if len(content) == 0 {
+		return "", false
+	}
+
+	var reasoningText strings.Builder
+	hasReasoning := false
+	hasOther := false
+
+	for _, part := range content {
+		switch part.(type) {
+		case fantasy.ReasoningContent:
+			hasReasoning = true
+		case fantasy.ToolCallContent, fantasy.ToolResultContent:
+			hasOther = true
+		case fantasy.TextContent:
+			// Text content at the step level is the final response text,
+			// not reasoning. A step with final text is considered "progress".
+			hasOther = true
+		}
+	}
+
+	if !hasReasoning || hasOther {
+		return "", false
+	}
+
+	// Collect all reasoning text from this step.
+	for _, part := range content {
+		if rc, ok := part.(fantasy.ReasoningContent); ok {
+			reasoningText.WriteString(rc.Text)
+		}
+	}
+
+	return reasoningText.String(), true
+}
+
+// hasRepeatedThinking detects when the model is stuck in a thinking loop —
+// repeatedly producing reasoning content without making progress (no tool
+// calls, no final text). It returns true when the same reasoning content
+// repeats across consecutive steps.
+func hasRepeatedThinking(steps []fantasy.StepResult) bool {
+	if len(steps) < reasoningLoopWindowSize {
+		return false
+	}
+
+	// Look at the last window of steps.
+	window := steps[len(steps)-reasoningLoopWindowSize:]
+
+	// Collect reasoning-only step texts.
+	var reasoningTexts []string
+	for _, step := range window {
+		if text, ok := isReasoningOnlyStep(step.Content); ok {
+			reasoningTexts = append(reasoningTexts, text)
+		}
+	}
+
+	// We need at least 2 reasoning-only steps to detect a loop.
+	if len(reasoningTexts) < 2 {
+		return false
+	}
+
+	// Check if any reasoning text repeats more than maxRepeats times.
+	counts := make(map[string]int)
+	for _, text := range reasoningTexts {
+		counts[text]++
+		if counts[text] > reasoningLoopMaxRepeats {
+			return true
+		}
+	}
+
+	return false
+}
+
+// hasConsecutiveToolFailures checks whether the agent is stuck in a loop of
+// consecutive tool failures for the same tool. If a specific tool fails more
+// than toolFailureMaxCount times in a row, this returns true to prevent
+// infinite retry loops.
+func hasConsecutiveToolFailures(steps []fantasy.StepResult) bool {
+	if len(steps) < loopDetectionWindowSize {
+		return false
+	}
+
+	// Track consecutive failure counts per tool name, scanning from the
+	// most recent step backwards.
+	type toolFail struct {
+		name  string
+		count int
+	}
+	var failures []toolFail
+
+	for i := len(steps) - 1; i >= 0; i-- {
+		content := steps[i].Content
+		toolCalls := content.ToolCalls()
+		toolResults := content.ToolResults()
+
+		// Build a map of tool call IDs to their result types.
+		resultByID := make(map[string]bool) // true = error, false = success
+		for _, tr := range toolResults {
+			isErr := false
+			if _, ok := fantasy.AsToolResultOutputType[fantasy.ToolResultOutputContentError](tr.Result); ok {
+				isErr = true
+			}
+			resultByID[tr.ToolCallID] = isErr
+		}
+
+		for _, tc := range toolCalls {
+			isErr, ok := resultByID[tc.ToolCallID]
+			if !ok {
+				// No result for this call — treat as error.
+				isErr = true
+			}
+			if isErr {
+				// Check if we already have a failure entry for this tool.
+				found := false
+				for j := range failures {
+					if failures[j].name == tc.ToolName {
+						failures[j].count++
+						if failures[j].count > toolFailureMaxCount {
+							return true
+						}
+						found = true
+						break
+					}
+				}
+				if !found {
+					failures = append(failures, toolFail{name: tc.ToolName, count: 1})
+				}
+			} else {
+				// A successful call resets the chain for that tool.
+				for j := range failures {
+					if failures[j].name == tc.ToolName {
+						failures = append(failures[:j], failures[j+1:]...)
+						break
+					}
+				}
+			}
+		}
+	}
+
+	return false
 }

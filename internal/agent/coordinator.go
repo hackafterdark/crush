@@ -1,13 +1,11 @@
 package agent
 
 import (
-	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -25,6 +23,7 @@ import (
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/event"
 	"github.com/charmbracelet/crush/internal/filetracker"
+	"github.com/charmbracelet/crush/internal/goal"
 	"github.com/charmbracelet/crush/internal/history"
 	"github.com/charmbracelet/crush/internal/hooks"
 	"github.com/charmbracelet/crush/internal/log"
@@ -45,8 +44,8 @@ import (
 	"charm.land/fantasy/providers/openaicompat"
 	"charm.land/fantasy/providers/openrouter"
 	"charm.land/fantasy/providers/vercel"
+	"github.com/charmbracelet/crush/internal/jsonmerge"
 	openaisdk "github.com/charmbracelet/openai-go/option"
-	"github.com/qjebbs/go-jsons"
 )
 
 // Coordinator errors.
@@ -77,6 +76,29 @@ var opencodeMessagesModels = map[string]bool{
 	"qwen3.7-max": true,
 }
 
+// ProviderPolicy defines template and reasoning defaults passed to providers
+// that support Jinja chat templates (e.g. vLLM, OpenRouter). The fields are
+// exported so they can be extended or overridden via configuration in the
+// future without changing the struct layout.
+type ProviderPolicy struct {
+	// ChatTemplateKwargs are injected into the request body under the
+	// "chat_template_kwargs" key so that providers can forward them to
+	// Jinja-based chat templates.
+	ChatTemplateKwargs map[string]any
+}
+
+// defaultProviderPolicy returns a policy with safe defaults for thinking
+// preservation and enabling. Callers may mutate the returned value or
+// replace ChatTemplateKwargs before passing it to the request builder.
+func defaultProviderPolicy() ProviderPolicy {
+	return ProviderPolicy{
+		ChatTemplateKwargs: map[string]any{
+			"preserve_thinking": true,
+			"enable_thinking":   true,
+		},
+	}
+}
+
 type Coordinator interface {
 	// INFO: (kujtim) this is not used yet we will use this when we have multiple agents
 	// SetMainAgent(string)
@@ -100,6 +122,7 @@ type Coordinator interface {
 	Summarize(context.Context, string) error
 	Model() Model
 	UpdateModels(ctx context.Context) error
+	GoalRuntime() *goal.Runtime
 }
 
 type coordinator struct {
@@ -109,6 +132,8 @@ type coordinator struct {
 	permissions permission.Service
 	history     history.Service
 	filetracker filetracker.Service
+	goalService goal.Service
+	goalRuntime *goal.Runtime
 	lspManager  *lsp.Manager
 	notify      pubsub.Publisher[notify.Notification]
 	runComplete pubsub.Publisher[notify.RunComplete]
@@ -132,6 +157,7 @@ func NewCoordinator(
 	permissions permission.Service,
 	history history.Service,
 	filetracker filetracker.Service,
+	goalService goal.Service,
 	lspManager *lsp.Manager,
 	notify pubsub.Publisher[notify.Notification],
 	runComplete pubsub.Publisher[notify.RunComplete],
@@ -157,6 +183,7 @@ func NewCoordinator(
 		permissions:  permissions,
 		history:      history,
 		filetracker:  filetracker,
+		goalService:  goalService,
 		lspManager:   lspManager,
 		notify:       notify,
 		runComplete:  runComplete,
@@ -165,6 +192,7 @@ func NewCoordinator(
 		activeSkills: activeSkills,
 		skillTracker: skillTracker,
 	}
+	c.goalRuntime = goal.NewRuntime(goalService, c, notify)
 
 	agentCfg, ok := cfg.Config().Agents[config.AgentCoder]
 	if !ok {
@@ -186,7 +214,6 @@ func NewCoordinator(
 	return c, nil
 }
 
-// Run implements Coordinator.
 func (c *coordinator) Run(ctx context.Context, sessionID string, prompt string, attachments ...message.Attachment) (*fantasy.AgentResult, error) {
 	return c.run(ctx, nil, sessionID, prompt, attachments...)
 }
@@ -291,13 +318,66 @@ func (c *coordinator) run(ctx context.Context, accept *AcceptedRun, sessionID st
 	})
 	logTurnSkillUsage(sessionID, prompt, c.activeSkills, c.skillTracker, beforeLoaded)
 
-	// Notify only if still unauthorized after retry — a successful
-	// retry means the user doesn't need to re-authenticate.
-	if originalErr != nil && c.isUnauthorized(originalErr) && c.notify != nil && model.ModelCfg.Provider == hyper.Name {
-		c.notify.Publish(pubsub.CreatedEvent, notify.Notification{
-			Type:       notify.TypeReAuthenticate,
-			ProviderID: model.ModelCfg.Provider,
-		})
+	if c.isUnauthorized(originalErr) {
+		// Notify only if still unauthorized after retry — a successful
+		// retry means the user doesn't need to re-authenticate.
+		if originalErr != nil && c.notify != nil && model.ModelCfg.Provider == hyper.Name {
+			c.notify.Publish(pubsub.CreatedEvent, notify.Notification{
+				Type:       notify.TypeReAuthenticate,
+				ProviderID: model.ModelCfg.Provider,
+			})
+		}
+	}
+
+	if c.isBadRequest(originalErr) {
+		// Retry once on Bad Request — vLLM's tool call parser can produce
+		// malformed output that triggers context overflow. The model often
+		// produces valid output on the second attempt.
+		slog.Warn("Bad Request from provider, retrying once", "error", originalErr, "session_id", sessionID)
+		result, originalErr = run()
+		if c.isBadRequest(originalErr) {
+			// Second fallback: the sanitized tool call input is still
+			// malformed (e.g. unquoted keys, trailing commas). Before
+			// stripping the last tool call, inject a Tool Observation
+			// so the model understands why the call failed and can
+			// self-correct on the next attempt.
+			// Use a fresh background context so a user-initiated cancel
+			// (Escape key) does not cause this attempt to fail instantly.
+			slog.Warn("Bad Request persists after first retry, stripping last tool call and retrying", "error", originalErr, "session_id", sessionID)
+			stripCtx := WithStripLastToolCall(context.Background())
+			// Inject the tool observation error into the session so the
+			// agent can see why the call failed and self-correct.
+			c.injectToolObservation(stripCtx, sessionID, originalErr)
+			result, originalErr = c.currentAgent.Run(stripCtx, SessionAgentCall{
+				SessionID:        sessionID,
+				RunID:            runID,
+				Prompt:           prompt,
+				Attachments:      attachments,
+				MaxOutputTokens:  maxTokens,
+				ProviderOptions:  mergedOptions,
+				Temperature:      temp,
+				TopP:             topP,
+				TopK:             topK,
+				FrequencyPenalty: freqPenalty,
+				PresencePenalty:  presPenalty,
+				OnComplete:       onComplete,
+			})
+			// If the third attempt also fails with 400, do NOT retry
+			// further. The error is permanent (e.g. model
+			// misconfiguration, invalid parameters) and retrying would
+			// only create an infinite loop.
+			if c.isBadRequest(originalErr) {
+				slog.Error("Bad Request recovery failed after 3 attempts; not retrying further", "error", originalErr, "session_id", sessionID)
+			}
+		}
+	}
+
+	if originalErr == nil && c.goalRuntime != nil {
+		go func() {
+			c.goalRuntime.OnTurnFinished(context.Background(), sessionID)
+		}()
+	} else {
+		slog.Warn("Goal continuation skipped due to agent error; use /goal resume to continue", "session_id", sessionID, "error", originalErr)
 	}
 
 	if hasLatest && c.runComplete != nil {
@@ -339,23 +419,15 @@ func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.
 		}
 	}
 
-	readers := []io.Reader{
-		bytes.NewReader(catwalkOpts),
-		bytes.NewReader(providerCfgOpts),
-		bytes.NewReader(cfgOpts),
-	}
-
-	got, err := jsons.Merge(readers)
+	mergedJSON, err := jsonmerge.Merge(catwalkOpts, providerCfgOpts, cfgOpts)
 	if err != nil {
-		slog.Error("Could not merge call config", "err", err)
+		slog.Error("Could not merge call config", "err", err, "catwalk_opts", string(catwalkOpts), "provider_opts", string(providerCfgOpts), "model_opts", string(cfgOpts))
 		return options
 	}
 
-	mergedOptions := make(map[string]any)
-
-	err = json.Unmarshal([]byte(got), &mergedOptions)
-	if err != nil {
-		slog.Error("Could not create config for call", "err", err)
+	var mergedOptions map[string]any
+	if err := json.Unmarshal(mergedJSON, &mergedOptions); err != nil {
+		slog.Error("Could not unmarshal merged config", "err", err)
 		return options
 	}
 
@@ -464,6 +536,11 @@ func getProviderOptions(model Model, providerCfg config.ProviderConfig) fantasy.
 	case openaicompat.Name, hyper.Name:
 		extraBody := make(map[string]any)
 
+		// Inject chat_template_kwargs so Jinja-based providers can
+		// preserve and enable thinking tags in the model output.
+		policy := defaultProviderPolicy()
+		extraBody["chat_template_kwargs"] = policy.ChatTemplateKwargs
+
 		_, hasReasoningEffort := mergedOptions["reasoning_effort"]
 		if !hasReasoningEffort && shouldSetEffort {
 			switch providerCfg.ID {
@@ -540,6 +617,7 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 		SystemPrompt:         "",
 		IsSubAgent:           isSubAgent,
 		DisableAutoSummarize: c.cfg.Config().Options.DisableAutoSummarize,
+		SummarizeThreshold:   c.cfg.Config().Options.SummarizeThreshold,
 		IsYolo:               c.permissions.SkipRequests(),
 		Sessions:             c.sessions,
 		Messages:             c.messages,
@@ -605,6 +683,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 
 	allTools = append(
 		allTools,
+		tools.NewUpdateGoalTool(c.goalService),
 		tools.NewBashTool(c.permissions, c.cfg.WorkingDir(), c.cfg.Config().Options.Attribution, modelID),
 		tools.NewCrushInfoTool(c.cfg, c.lspManager, c.allSkills, c.activeSkills, c.skillTracker),
 		tools.NewCrushLogsTool(logFile),
@@ -621,6 +700,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 		tools.NewTodosTool(c.sessions),
 		tools.NewViewTool(c.lspManager, c.permissions, c.filetracker, c.skillTracker, c.cfg.WorkingDir(), c.cfg.Config().Options.SkillsPaths...),
 		tools.NewWriteTool(c.lspManager, c.permissions, c.history, c.filetracker, c.cfg.WorkingDir()),
+		tools.NewAppendTool(c.lspManager, c.permissions, c.history, c.filetracker, c.cfg.WorkingDir()),
 	)
 
 	// Add LSP tools if user has configured LSPs or auto_lsp is enabled (nil or true).
@@ -1078,6 +1158,10 @@ func (c *coordinator) Model() Model {
 	return c.currentAgent.Model()
 }
 
+func (c *coordinator) GoalRuntime() *goal.Runtime {
+	return c.goalRuntime
+}
+
 func (c *coordinator) UpdateModels(ctx context.Context) error {
 	// build the models again so we make sure we get the latest config
 	large, small, err := c.buildAgentModels(ctx, false)
@@ -1166,6 +1250,84 @@ func (c *coordinator) retryAfterUnauthorized(ctx context.Context, providerCfg co
 func (c *coordinator) isUnauthorized(err error) bool {
 	var providerErr *fantasy.ProviderError
 	return errors.As(err, &providerErr) && providerErr.StatusCode == http.StatusUnauthorized
+}
+
+func (c *coordinator) isBadRequest(err error) bool {
+	var providerErr *fantasy.ProviderError
+	if !errors.As(err, &providerErr) || providerErr.StatusCode != http.StatusBadRequest {
+		return false
+	}
+	// Only retry on known recoverable 400 errors. Some 400s are permanent
+	// (model not found, invalid parameters) and retrying would create an
+	// infinite loop.
+	msg := strings.ToLower(providerErr.Message)
+	return strings.Contains(msg, "tool") ||
+		strings.Contains(msg, "malformed") ||
+		strings.Contains(msg, "invalid json") ||
+		strings.Contains(msg, "extra data") ||
+		strings.Contains(msg, "context overflow") ||
+		strings.Contains(msg, "max context") ||
+		strings.Contains(msg, "too long") ||
+		strings.Contains(msg, "overflow") ||
+		strings.Contains(msg, "extra data") ||
+		strings.Contains(msg, "parse error")
+}
+
+// injectToolObservation finds the last assistant message with tool calls in
+// the session and injects a Tool Observation message so the model understands
+// why the call failed. This is called before stripping the last tool call
+// during 400 Bad Request recovery.
+func (c *coordinator) injectToolObservation(ctx context.Context, sessionID string, err error) {
+	msgs, listErr := c.messages.List(ctx, sessionID)
+	if listErr != nil {
+		slog.Warn("Failed to list messages for tool observation injection", "error", listErr, "session_id", sessionID)
+		return
+	}
+
+	// Find the last assistant message with tool calls.
+	var lastToolCallID, lastToolCallName string
+	for i := len(msgs) - 1; i >= 0; i-- {
+		if msgs[i].Role == message.Assistant {
+			toolCalls := msgs[i].ToolCalls()
+			if len(toolCalls) > 0 {
+				lastToolCallID = toolCalls[len(toolCalls)-1].ID
+				lastToolCallName = toolCalls[len(toolCalls)-1].Name
+				break
+			}
+		}
+	}
+
+	if lastToolCallID == "" || lastToolCallName == "" {
+		slog.Warn("No tool call found for tool observation injection", "session_id", sessionID)
+		return
+	}
+
+	// Create and inject the Tool Observation message using the actual
+	// tool call ID so it passes the orphan filter.
+	observation := translateToObservation(err, lastToolCallName)
+	toolResult := message.ToolResult{
+		ToolCallID: lastToolCallID,
+		Name:       lastToolCallName,
+		Content:    observation,
+		IsError:    true,
+	}
+
+	_, createErr := c.messages.Create(ctx, sessionID, message.CreateMessageParams{
+		Role:  message.Tool,
+		Parts: []message.ContentPart{toolResult},
+	})
+	if createErr != nil {
+		slog.Warn("Failed to inject tool observation", "error", createErr, "session_id", sessionID)
+	}
+}
+
+// runWithStrippedLastToolCall retries the agent run with the last assistant
+// tool call stripped from the conversation history. This is used as a
+// fallback when the stored tool call input is malformed JSON and causes a
+// persistent 400 Bad Request.
+func (c *coordinator) runWithStrippedLastToolCall(ctx context.Context, sessionID string, call SessionAgentCall) (*fantasy.AgentResult, error) {
+	stripCtx := WithStripLastToolCall(ctx)
+	return c.currentAgent.Run(stripCtx, call)
 }
 
 func (c *coordinator) refreshOAuth2Token(ctx context.Context, providerCfg config.ProviderConfig) error {

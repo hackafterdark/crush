@@ -309,6 +309,61 @@ func TestCommandsBlocker(t *testing.T) {
 	}
 }
 
+func TestSelfExecBlocker(t *testing.T) {
+	blocker := SelfExecBlocker()
+
+	tests := []struct {
+		name        string
+		args        []string
+		shouldBlock bool
+	}{
+		{"go run .", []string{"go", "run", "."}, true},
+		{"go build .", []string{"go", "build", "."}, true},
+		{"./crush", []string{"./crush"}, true},
+		{"crush", []string{"crush"}, true},
+		{"go run -v .", []string{"go", "run", "-v", "."}, false},
+		{"go build ./cmd/foo", []string{"go", "build", "./cmd/foo"}, false},
+		{"go build -o myapp", []string{"go", "build", "-o", "myapp"}, false},
+		{"echo hello", []string{"echo", "hello"}, false},
+		{"go build", []string{"go", "build"}, false},
+		{"go run", []string{"go", "run"}, false},
+		{"empty", []string{}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := blocker(tt.args)
+			require.Equal(t, tt.shouldBlock, result)
+		})
+	}
+}
+
+func TestSelfExecBlocker_Integration(t *testing.T) {
+	tests := []struct {
+		name    string
+		command string
+	}{
+		{"go run .", "go run ."},
+		{"go build .", "go build ."},
+		{"go build -o crush", "go build -o crush"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			shell := NewShell(&Options{
+				WorkingDir: tmpDir,
+				BlockFuncs: []BlockFunc{SelfExecBlocker()},
+			})
+
+			_, _, err := shell.Exec(t.Context(), tt.command)
+
+			require.Error(t, err)
+			require.Contains(t, err.Error(), "not allowed for security reasons")
+		})
+	}
+}
+
 func TestSplitArgsFlags(t *testing.T) {
 	tests := []struct {
 		name      string

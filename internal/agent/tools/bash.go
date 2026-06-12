@@ -15,8 +15,10 @@ import (
 	"charm.land/fantasy"
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/fsext"
+	"github.com/charmbracelet/crush/internal/otel"
 	"github.com/charmbracelet/crush/internal/permission"
 	"github.com/charmbracelet/crush/internal/shell"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type BashParams struct {
@@ -185,6 +187,9 @@ func blockFuncs() []shell.BlockFunc {
 		shell.ArgumentsBlocker("pnpm", []string{"add"}, []string{"-g"}),
 		shell.ArgumentsBlocker("yarn", []string{"global", "add"}, nil),
 
+		// Prevent Crush from spawning itself (hijacks TUI)
+		shell.SelfExecBlocker(),
+
 		// `go test -exec` can run arbitrary commands
 		shell.ArgumentsBlocker("go", []string{"test"}, []string{"-exec"}),
 	}
@@ -195,6 +200,13 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 		BashToolName,
 		string(bashDescription(attribution, modelID)),
 		func(ctx context.Context, params BashParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			ctx, span := otel.StartSpan(ctx, "execute_tool bash")
+			defer span.End()
+			span.SetAttributes(
+				attribute.String("gen_ai.tool.name", BashToolName),
+				attribute.String("gen_ai.tool.call.id", call.ID),
+				attribute.String("gen_ai.tool.call.arguments", call.Input),
+			)
 			if params.Command == "" {
 				return fantasy.NewTextErrorResponse("missing command"), nil
 			}

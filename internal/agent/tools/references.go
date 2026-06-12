@@ -16,7 +16,9 @@ import (
 
 	"charm.land/fantasy"
 	"github.com/charmbracelet/crush/internal/lsp"
+	"github.com/charmbracelet/crush/internal/otel"
 	"github.com/charmbracelet/x/powernap/pkg/lsp/protocol"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type ReferencesParams struct {
@@ -38,6 +40,13 @@ func NewReferencesTool(lspManager *lsp.Manager) fantasy.AgentTool {
 		ReferencesToolName,
 		referencesDescription,
 		func(ctx context.Context, params ReferencesParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+			ctx, span := otel.StartSpan(ctx, "execute_tool references")
+			defer span.End()
+			span.SetAttributes(
+				attribute.String("gen_ai.tool.name", ReferencesToolName),
+				attribute.String("gen_ai.tool.call.id", call.ID),
+				attribute.String("gen_ai.tool.call.arguments", call.Input),
+			)
 			if params.Symbol == "" {
 				return fantasy.NewTextErrorResponse("symbol is required"), nil
 			}
