@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 
 	"charm.land/fantasy"
 	"github.com/charmbracelet/crush/internal/agent/tools/mcp"
@@ -13,6 +14,61 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
+// maxResultLen is the maximum length for gen_ai.tool.call.result.
+// Results longer than this are truncated to prevent high-cardinality data
+// in OTel traces (e.g., directory listings, file contents, tokens).
+const maxResultLen = 1024
+
+// defaultSensitiveServers is the built-in list of MCP server names that return
+// sensitive data (credentials, secrets, tokens). Users can override this by
+// setting observability.sensitive_mcp_servers in crush.json.
+var defaultSensitiveServers = []string{
+	"1password",
+	"bitwarden",
+	"dashlane",
+	"keeper",
+	"keyring",
+	"lastpass",
+	"pass",
+	"password-store",
+	"passbolt",
+	"robocopy",
+	"secrets",
+	"vault",
+	"zoho",
+}
+
+// sanitizeResult prepares a tool result for recording in the gen_ai.tool.call.result
+// OTel attribute. It redacts known-sensitive servers, detects secrets/tokens,
+// and truncates long results to prevent high-cardinality data in traces.
+// The cfg parameter provides the observability config's sensitive server list;
+// if empty, the default list is used.
+func sanitizeResult(cfg *config.ConfigStore, mcpName, result string) string {
+	// Build the set of sensitive server names: config overrides the defaults.
+	var sensitive []string
+	if cfg != nil {
+		if obs := cfg.Config().Observability; obs != nil && len(obs.SensitiveMCPServers) > 0 {
+			sensitive = append(sensitive, obs.SensitiveMCPServers...)
+		}
+	}
+	if len(sensitive) == 0 {
+		sensitive = defaultSensitiveServers
+	}
+
+	// Always redact results from credential/secret managers.
+	for _, srv := range sensitive {
+		if strings.EqualFold(mcpName, srv) {
+			return "[REDACTED]"
+		}
+	}
+
+	// Truncate if over the limit.
+	if len(result) > maxResultLen {
+		return result[:maxResultLen] + "... [TRUNCATED]"
+	}
+
+	return result
+}
 // mcpTransportAttr returns OTel attributes describing the MCP server's
 // transport (stdio/pipe, HTTP, etc.) based on the client session state.
 func mcpTransportAttr(mcpName string) []attribute.KeyValue {
@@ -189,8 +245,9 @@ func (m *Tool) Run(ctx context.Context, params fantasy.ToolCall) (fantasy.ToolRe
 	}
 
 	// Record the tool result on the span (opt-in per MCP semconv).
+	// Sanitize to prevent leaking sensitive data into OTel.
 	if response.Content != "" {
-		span.SetAttributes(attribute.String("gen_ai.tool.call.result", response.Content))
+		span.SetAttributes(attribute.String("gen_ai.tool.call.result", sanitizeResult(m.cfg, m.mcpName, response.Content)))
 	}
 	return response, nil
 }

@@ -574,6 +574,11 @@ type Observability struct {
 
 	// ResourceAttributes are additional attributes to attach to OTel spans and metrics.
 	ResourceAttributes map[string]string `json:"resource_attributes,omitempty" jsonschema:"description=Additional OTel resource attributes"`
+
+	// SensitiveMCPServers lists MCP server names whose tool results should
+	// be redacted from OTel traces to prevent leakage of credentials,
+	// secrets, or other sensitive data.
+	SensitiveMCPServers []string `json:"sensitive_mcp_servers,omitempty" jsonschema:"description=MCP server names whose results should be redacted from traces,example=vault"`
 }
 
 // DisplayName returns the hook name for display purposes. It returns Name
