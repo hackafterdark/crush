@@ -410,6 +410,36 @@ func (c *Config) configureProviders(store *ConfigStore, env env.Env, resolver Va
 	return nil
 }
 
+func safeDataDir(workingDir, dataDir string) (string, bool) {
+	if dataDir == "" {
+		return "", false
+	}
+
+	baseAbs, err := filepath.Abs(workingDir)
+	if err != nil {
+		return "", false
+	}
+
+	candidate := dataDir
+	if !filepath.IsAbs(candidate) {
+		candidate = filepath.Join(baseAbs, candidate)
+	}
+	candidateAbs, err := filepath.Abs(candidate)
+	if err != nil {
+		return "", false
+	}
+
+	rel, err := filepath.Rel(baseAbs, candidateAbs)
+	if err != nil {
+		return "", false
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+
+	return filepath.Clean(candidateAbs), true
+}
+
 func (c *Config) setDefaults(workingDir, dataDir string) {
 	if c.Options == nil {
 		c.Options = &Options{}
@@ -417,8 +447,8 @@ func (c *Config) setDefaults(workingDir, dataDir string) {
 	if c.Options.TUI == nil {
 		c.Options.TUI = &TUIOptions{}
 	}
-	if dataDir != "" {
-		c.Options.DataDirectory = dataDir
+	if safeDir, ok := safeDataDir(workingDir, dataDir); ok {
+		c.Options.DataDirectory = safeDir
 	} else if c.Options.DataDirectory == "" {
 		if path, ok := fsext.LookupClosestBounded(workingDir, projectBoundary(workingDir), defaultDataDirectory); ok {
 			c.Options.DataDirectory = path
