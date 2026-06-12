@@ -77,7 +77,20 @@ func NewAppendTool(
 				return fantasy.ToolResponse{}, fmt.Errorf("session_id is required")
 			}
 
-			filePath := filepathext.SmartJoin(workingDir, params.FilePath)
+			absWorkingDir, err := filepath.Abs(workingDir)
+			if err != nil {
+				return fantasy.ToolResponse{}, fmt.Errorf("error resolving working directory: %w", err)
+			}
+			filePath := filepathext.SmartJoin(absWorkingDir, params.FilePath)
+			absFilePath, err := filepath.Abs(filePath)
+			if err != nil {
+				return fantasy.ToolResponse{}, fmt.Errorf("error resolving file path: %w", err)
+			}
+			relPath, err := filepath.Rel(absWorkingDir, absFilePath)
+			if err != nil || relPath == ".." || strings.HasPrefix(relPath, ".."+string(os.PathSeparator)) {
+				return fantasy.NewTextErrorResponse("file_path must be within the working directory"), nil
+			}
+			filePath = absFilePath
 
 			fileInfo, err := os.Stat(filePath)
 			if err == nil {
