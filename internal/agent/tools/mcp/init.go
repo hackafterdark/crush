@@ -43,13 +43,25 @@ func parseLevel(level mcp.LoggingLevel) slog.Level {
 // on close.
 type ClientSession struct {
 	*mcp.ClientSession
-	cancel context.CancelFunc
+	cancel      context.CancelFunc
+	transport   string
+	transportURL string
 }
 
 // Close cancels the session context and then closes the underlying session.
 func (s *ClientSession) Close() error {
 	s.cancel()
 	return s.ClientSession.Close()
+}
+
+// Transport returns the network transport type (e.g. "pipe", "tcp").
+func (s *ClientSession) Transport() string {
+	return s.transport
+}
+
+// TransportURL returns the network protocol name (e.g. "http").
+func (s *ClientSession) TransportURL() string {
+	return s.transportURL
 }
 
 var (
@@ -406,7 +418,20 @@ func createSession(ctx context.Context, name string, m config.MCPConfig, resolve
 
 	cancelTimer.Stop()
 	slog.Debug("MCP client initialized", "name", name)
-	return &ClientSession{session, cancel}, nil
+
+	// Detect transport type for telemetry.
+	var transportType, transportURL string
+	switch transport.(type) {
+	case *mcp.CommandTransport:
+		transportType = "pipe"
+	case *mcp.StreamableClientTransport:
+		transportType = "tcp"
+		transportURL = "http"
+	case *mcp.SSEClientTransport:
+		transportType = "tcp"
+		transportURL = "http"
+	}
+	return &ClientSession{ClientSession: session, cancel: cancel, transport: transportType, transportURL: transportURL}, nil
 }
 
 // maybeStdioErr if a stdio mcp prints an error in non-json format, it'll fail

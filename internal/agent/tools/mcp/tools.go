@@ -13,6 +13,8 @@ import (
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/csync"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 type Tool = mcp.Tool
@@ -43,10 +45,25 @@ func RunTool(ctx context.Context, cfg *config.ConfigStore, name, toolName string
 	if err != nil {
 		return ToolResult{}, err
 	}
-	result, err := c.CallTool(ctx, &mcp.CallToolParams{
+
+	// Inject W3C Trace Context into _meta so MCP servers that support
+	// OpenTelemetry can link their internal spans to Crush's trace.
+	// Servers that don't understand _meta simply ignore it (per MCP spec).
+	params := &mcp.CallToolParams{
 		Name:      toolName,
 		Arguments: args,
-	})
+	}
+	carrier := make(propagation.MapCarrier)
+	otel.GetTextMapPropagator().Inject(ctx, carrier)
+	meta := make(mcp.Meta, len(carrier))
+	for k, v := range carrier {
+		meta[k] = v
+	}
+	if len(meta) > 0 {
+		params.Meta = meta
+	}
+
+	result, err := c.CallTool(ctx, params)
 	if err != nil {
 		return ToolResult{}, err
 	}
