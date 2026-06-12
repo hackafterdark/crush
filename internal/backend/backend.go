@@ -104,6 +104,12 @@ type Workspace struct {
 	Env    []string
 	Skills *skills.Manager
 
+	// rawDataDir is the raw DataDir argument from the first CreateWorkspace
+	// call. It is used for comparison in logFirstWinsMismatch so that
+	// identical raw arguments are recognised as identical regardless of
+	// how setDefaults normalises the processed config value.
+	rawDataDir string
+
 	// resolvedPath is the path used as the dedup key in
 	// Backend.pathIndex. It is filepath.EvalSymlinks(filepath.Abs(Path))
 	// with fallback to the cleaned absolute path.
@@ -307,6 +313,7 @@ func (b *Backend) CreateWorkspace(args proto.Workspace) (*Workspace, proto.Works
 		Cfg:          cfg,
 		Env:          args.Env,
 		Skills:       skillsMgr,
+		rawDataDir:   args.DataDir,
 		resolvedPath: key,
 		ctx:          wsCtx,
 		cancel:       wsCancel,
@@ -740,7 +747,7 @@ func logFirstWinsMismatch(existing *Workspace, args proto.Workspace) {
 	existingYOLO := existing.Cfg.Overrides().SkipPermissionRequests
 	if existingYOLO == args.YOLO &&
 		existingCfg.Options.Debug == args.Debug &&
-		existingCfg.Options.DataDirectory == args.DataDir &&
+		existing.rawDataDir == args.DataDir &&
 		stringSlicesEqual(existing.Env, args.Env) {
 		return
 	}
@@ -752,7 +759,7 @@ func logFirstWinsMismatch(existing *Workspace, args proto.Workspace) {
 		"requested_yolo", args.YOLO,
 		"existing_debug", existingCfg.Options.Debug,
 		"requested_debug", args.Debug,
-		"existing_data_dir", existingCfg.Options.DataDirectory,
+		"existing_data_dir", existing.rawDataDir,
 		"requested_data_dir", args.DataDir,
 		"existing_env", existing.Env,
 		"requested_env", args.Env,
