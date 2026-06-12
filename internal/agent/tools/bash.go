@@ -200,9 +200,13 @@ func NewBashTool(permissions permission.Service, workingDir string, attribution 
 		BashToolName,
 		string(bashDescription(attribution, modelID)),
 		func(ctx context.Context, params BashParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			ctx, span := otel.StartSpan(ctx, "tool.bash")
+			ctx, span := otel.StartSpan(ctx, "execute_tool bash")
 			defer span.End()
-			span.SetAttributes(attribute.String("tool.name", BashToolName))
+			span.SetAttributes(
+				attribute.String("gen_ai.tool.name", BashToolName),
+				attribute.String("gen_ai.tool.call.id", call.ID),
+				attribute.String("gen_ai.tool.call.arguments", call.Input),
+			)
 			if params.Command == "" {
 				return fantasy.NewTextErrorResponse("missing command"), nil
 			}

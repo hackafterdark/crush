@@ -78,9 +78,13 @@ func NewLsTool(permissions permission.Service, workingDir string, lsConfig confi
 		LSToolName,
 		lsDescription(),
 		func(ctx context.Context, params LSParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			ctx, span := otel.StartSpan(ctx, "tool.ls")
+			ctx, span := otel.StartSpan(ctx, "execute_tool ls")
 			defer span.End()
-			span.SetAttributes(attribute.String("tool.name", LSToolName))
+			span.SetAttributes(
+				attribute.String("gen_ai.tool.name", LSToolName),
+				attribute.String("gen_ai.tool.call.id", call.ID),
+				attribute.String("gen_ai.tool.call.arguments", call.Input),
+			)
 			searchPath, err := fsext.Expand(cmp.Or(params.Path, workingDir))
 			if err != nil {
 				return fantasy.NewTextErrorResponse(fmt.Sprintf("error expanding path: %v", err)), nil

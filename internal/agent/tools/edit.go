@@ -71,9 +71,13 @@ func NewEditTool(
 		EditToolName,
 		editDescription,
 		func(ctx context.Context, params EditParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			ctx, span := otel.StartSpan(ctx, "tool.edit")
+			ctx, span := otel.StartSpan(ctx, "execute_tool edit")
 			defer span.End()
-			span.SetAttributes(attribute.String("tool.name", EditToolName))
+			span.SetAttributes(
+				attribute.String("gen_ai.tool.name", EditToolName),
+				attribute.String("gen_ai.tool.call.id", call.ID),
+				attribute.String("gen_ai.tool.call.arguments", call.Input),
+			)
 			if params.FilePath == "" {
 				return fantasy.NewTextErrorResponse("file_path is required"), nil
 			}

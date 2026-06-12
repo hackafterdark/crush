@@ -39,9 +39,13 @@ func NewWebSearchTool(client *http.Client) fantasy.AgentTool {
 		WebSearchToolName,
 		renderToolDescription(webSearchDescriptionTpl),
 		func(ctx context.Context, params WebSearchParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			ctx, span := otel.StartSpan(ctx, "tool.web_search")
+			ctx, span := otel.StartSpan(ctx, "execute_tool web_search")
 			defer span.End()
-			span.SetAttributes(attribute.String("tool.name", WebSearchToolName))
+			span.SetAttributes(
+				attribute.String("gen_ai.tool.name", WebSearchToolName),
+				attribute.String("gen_ai.tool.call.id", call.ID),
+				attribute.String("gen_ai.tool.call.arguments", call.Input),
+			)
 			if params.Query == "" {
 				return fantasy.NewTextErrorResponse("query is required"), nil
 			}

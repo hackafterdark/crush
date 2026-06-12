@@ -70,9 +70,13 @@ func NewMultiEditTool(
 		MultiEditToolName,
 		multieditDescription,
 		func(ctx context.Context, params MultiEditParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			ctx, span := otel.StartSpan(ctx, "tool.multiedit")
+			ctx, span := otel.StartSpan(ctx, "execute_tool multiedit")
 			defer span.End()
-			span.SetAttributes(attribute.String("tool.name", MultiEditToolName))
+			span.SetAttributes(
+				attribute.String("gen_ai.tool.name", MultiEditToolName),
+				attribute.String("gen_ai.tool.call.id", call.ID),
+				attribute.String("gen_ai.tool.call.arguments", call.Input),
+			)
 			if params.FilePath == "" {
 				return fantasy.NewTextErrorResponse("file_path is required"), nil
 			}

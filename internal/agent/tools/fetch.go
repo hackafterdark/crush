@@ -62,9 +62,13 @@ func NewFetchTool(permissions permission.Service, workingDir string, client *htt
 		FetchToolName,
 		fetchDescription(),
 		func(ctx context.Context, params FetchParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			ctx, span := otel.StartSpan(ctx, "tool.fetch")
+			ctx, span := otel.StartSpan(ctx, "execute_tool fetch")
 			defer span.End()
-			span.SetAttributes(attribute.String("tool.name", FetchToolName))
+			span.SetAttributes(
+				attribute.String("gen_ai.tool.name", FetchToolName),
+				attribute.String("gen_ai.tool.call.id", call.ID),
+				attribute.String("gen_ai.tool.call.arguments", call.Input),
+			)
 			if params.URL == "" {
 				return fantasy.NewTextErrorResponse("URL parameter is required"), nil
 			}

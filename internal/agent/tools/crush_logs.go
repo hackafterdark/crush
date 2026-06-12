@@ -80,9 +80,13 @@ func NewCrushLogsTool(logFile string) fantasy.AgentTool {
 		CrushLogsToolName,
 		crushLogsDescription(),
 		func(ctx context.Context, params CrushLogsParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			ctx, span := otel.StartSpan(ctx, "tool.crush_logs")
+			ctx, span := otel.StartSpan(ctx, "execute_tool crush_logs")
 			defer span.End()
-			span.SetAttributes(attribute.String("tool.name", CrushLogsToolName))
+			span.SetAttributes(
+				attribute.String("gen_ai.tool.name", CrushLogsToolName),
+				attribute.String("gen_ai.tool.call.id", call.ID),
+				attribute.String("gen_ai.tool.call.arguments", call.Input),
+			)
 			result := runCrushLogs(logFile, params)
 			return fantasy.NewTextResponse(result), nil
 		},

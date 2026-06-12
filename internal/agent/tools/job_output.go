@@ -37,9 +37,13 @@ func NewJobOutputTool() fantasy.AgentTool {
 		JobOutputToolName,
 		jobOutputDescription,
 		func(ctx context.Context, params JobOutputParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			ctx, span := otel.StartSpan(ctx, "tool.job_output")
+			ctx, span := otel.StartSpan(ctx, "execute_tool job_output")
 			defer span.End()
-			span.SetAttributes(attribute.String("tool.name", JobOutputToolName))
+			span.SetAttributes(
+				attribute.String("gen_ai.tool.name", JobOutputToolName),
+				attribute.String("gen_ai.tool.call.id", call.ID),
+				attribute.String("gen_ai.tool.call.arguments", call.Input),
+			)
 			if params.ShellID == "" {
 				return fantasy.NewTextErrorResponse("missing shell_id"), nil
 			}

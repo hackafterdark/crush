@@ -33,9 +33,13 @@ func NewJobKillTool() fantasy.AgentTool {
 		JobKillToolName,
 		jobKillDescription,
 		func(ctx context.Context, params JobKillParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			ctx, span := otel.StartSpan(ctx, "tool.job_kill")
+			ctx, span := otel.StartSpan(ctx, "execute_tool job_kill")
 			defer span.End()
-			span.SetAttributes(attribute.String("tool.name", JobKillToolName))
+			span.SetAttributes(
+				attribute.String("gen_ai.tool.name", JobKillToolName),
+				attribute.String("gen_ai.tool.call.id", call.ID),
+				attribute.String("gen_ai.tool.call.arguments", call.Input),
+			)
 			if params.ShellID == "" {
 				return fantasy.NewTextErrorResponse("missing shell_id"), nil
 			}

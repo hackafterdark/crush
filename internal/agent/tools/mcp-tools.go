@@ -99,9 +99,13 @@ func (m *Tool) Info() fantasy.ToolInfo {
 }
 
 func (m *Tool) Run(ctx context.Context, params fantasy.ToolCall) (fantasy.ToolResponse, error) {
-	ctx, span := otel.StartSpan(ctx, "tool.mcp")
+	ctx, span := otel.StartSpan(ctx, "execute_tool mcp")
 	defer span.End()
-	span.SetAttributes(attribute.String("tool.name", m.Name()))
+	span.SetAttributes(
+		attribute.String("gen_ai.tool.name", m.Name()),
+		attribute.String("gen_ai.tool.call.id", params.ID),
+		attribute.String("gen_ai.tool.call.arguments", params.Input),
+	)
 	sessionID := GetSessionFromContext(ctx)
 	if sessionID == "" {
 		return fantasy.ToolResponse{}, fmt.Errorf("session ID is required for creating a new file")

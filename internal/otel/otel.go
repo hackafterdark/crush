@@ -11,6 +11,7 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -18,7 +19,6 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
-	"go.opentelemetry.io/otel/trace"
 
 	"github.com/charmbracelet/crush/internal/config"
 	"github.com/charmbracelet/crush/internal/version"
@@ -148,6 +148,32 @@ func DurationAttribute(d time.Duration) attribute.KeyValue {
 // DurationUsAttribute returns an attribute with the duration of d in microseconds.
 func DurationUsAttribute(d time.Duration) attribute.KeyValue {
 	return attribute.Int64("duration_us", int64(d.Microseconds()))
+}
+
+// StartInvokeAgentSpan creates an "invoke_agent" span following the OTel GenAI
+// semantic conventions. The span wraps a full agent turn (LLM call + tool
+// executions) and is marked INTERNAL since Crush runs locally.
+func StartInvokeAgentSpan(ctx context.Context, agentName, conversationID string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
+	attrs := []attribute.KeyValue{
+		attribute.String(string(genAIAttrKeys.OperationName), "invoke_agent"),
+		attribute.String(string(genAIAttrKeys.AgentName), agentName),
+		attribute.String(string(genAIAttrKeys.ConversationID), conversationID),
+	}
+	spanOpts := append(opts, trace.WithSpanKind(trace.SpanKindInternal), trace.WithAttributes(attrs...))
+	return tracer.Start(ctx, "invoke_agent "+agentName, spanOpts...)
+}
+
+// StartLLMSpan creates an LLM call span following the OTel GenAI semantic
+// conventions. The span represents a single model API call (e.g. chat completion)
+// and is marked CLIENT since it calls an external API.
+func StartLLMSpan(ctx context.Context, provider, model string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
+	attrs := []attribute.KeyValue{
+		attribute.String(string(genAIAttrKeys.OperationName), "chat"),
+		attribute.String(string(genAIAttrKeys.ProviderName), provider),
+		attribute.String(string(genAIAttrKeys.RequestModel), model),
+	}
+	spanOpts := append(opts, trace.WithSpanKind(trace.SpanKindClient), trace.WithAttributes(attrs...))
+	return tracer.Start(ctx, "chat "+model, spanOpts...)
 }
 
 // --- GenAI Semantic Convention Helpers ---

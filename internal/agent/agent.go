@@ -44,11 +44,14 @@ import (
 	"github.com/charmbracelet/crush/internal/csync"
 	"github.com/charmbracelet/crush/internal/goal"
 	"github.com/charmbracelet/crush/internal/message"
+	"github.com/charmbracelet/crush/internal/otel"
 	"github.com/charmbracelet/crush/internal/pubsub"
 	"github.com/charmbracelet/crush/internal/session"
 	"github.com/charmbracelet/crush/internal/stringext"
 	"github.com/charmbracelet/crush/internal/version"
 	"github.com/charmbracelet/x/exp/charmtone"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -551,6 +554,17 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		return nil, err
 	}
 
+	// Create the agent turn span that wraps the entire turn (LLM calls + tool
+	// executions). Tool call spans created later will become children of this.
+	agentCtx, agentTurnSpan := otel.StartInvokeAgentSpan(ctx, "Crush", call.SessionID)
+	agentCtx = context.WithValue(agentCtx, tools.AgentTurnSpanKey, agentTurnSpan)
+	defer func() {
+		if retErr != nil {
+			otel.RecordError(agentTurnSpan, retErr)
+		}
+		agentTurnSpan.End()
+	}()
+
 	// genCtx/cancel are the run context and its cancel func. For the
 	// accepted (fire-and-forget) dispatch path they are created under
 	// dispatchMu below so a concurrent Cancel can observe the
@@ -617,7 +631,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		// Idle: become the active run. Register the cancel func before
 		// dropping the lock so a Cancel that arrives between here and
 		// assistant creation is not lost.
-		runCtx := context.WithValue(ctx, tools.SessionIDContextKey, call.SessionID)
+		runCtx := context.WithValue(agentCtx, tools.SessionIDContextKey, call.SessionID)
 		genCtx, cancel = context.WithCancel(runCtx)
 		a.activeRequests.Set(call.SessionID, cancel)
 		activeRegistered = true
@@ -751,15 +765,18 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		}
 	}
 
-	// Add the session to the context.
-	ctx = context.WithValue(ctx, tools.SessionIDContextKey, call.SessionID)
+	// Add the session to the agent context so it propagates to genCtx
+	// (created below via context.WithCancel(agentCtx)) and all child contexts
+	// used by tools. Storing in the original ctx parameter would be lost
+	// because genCtx is a child of agentCtx, not ctx.
+	agentCtx = context.WithValue(agentCtx, tools.SessionIDContextKey, call.SessionID)
 
 	// For the accepted dispatch path the run context and cancel func
 	// were already created and registered under dispatchMu above; reuse
 	// them. For the in-process path create them here, preserving the
 	// original ordering.
 	if !activeRegistered {
-		genCtx, cancel = context.WithCancel(ctx)
+		genCtx, cancel = context.WithCancel(agentCtx)
 		a.activeRequests.Set(call.SessionID, cancel)
 
 		defer cancel()
@@ -832,6 +849,9 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 
 	var stepMessages []fantasy.Message
 	var shouldSummarize bool
+	// llmSpan is the current LLM call span, set in PrepareStep and ended in
+	// OnStepFinish. It is a child of the agent turn span.
+	var llmSpan trace.Span
 	// Don't send MaxOutputTokens if 0 — some providers (e.g. LM Studio) reject it
 	var maxOutputTokens *int64
 	if call.MaxOutputTokens > 0 {
@@ -849,6 +869,14 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		TopK:             call.TopK,
 		FrequencyPenalty: call.FrequencyPenalty,
 		PrepareStep: func(callContext context.Context, options fantasy.PrepareStepFunctionOptions) (_ context.Context, prepared fantasy.PrepareStepResult, err error) {
+			// Create an LLM call span as a child of the agent turn span.
+			// This span represents a single model API call (chat completion).
+			if agentSpan, ok := callContext.Value(tools.AgentTurnSpanKey).(trace.Span); ok && agentSpan != nil {
+				var llmCtx context.Context
+				llmCtx, llmSpan = otel.StartLLMSpan(callContext, largeModel.ModelCfg.Provider, largeModel.CatwalkCfg.Name)
+				callContext = llmCtx
+			}
+
 			prepared.Messages = options.Messages
 			for i := range prepared.Messages {
 				prepared.Messages[i].ProviderOptions = nil
@@ -1030,6 +1058,31 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			return createMsgErr
 		},
 		OnStepFinish: func(stepResult fantasy.StepResult) error {
+			// End the LLM call span and record usage data.
+			if llmSpan != nil {
+				// Record token usage from the step result.
+				llmSpan.SetAttributes(
+					attribute.Int64("gen_ai.usage.input_tokens", stepResult.Usage.InputTokens),
+					attribute.Int64("gen_ai.usage.output_tokens", stepResult.Usage.OutputTokens),
+				)
+				// Record finish reason.
+				var finishReason string
+				switch stepResult.FinishReason {
+				case fantasy.FinishReasonStop:
+					finishReason = "stop"
+				case fantasy.FinishReasonLength:
+					finishReason = "length"
+				case fantasy.FinishReasonToolCalls:
+					finishReason = "tool_calls"
+				case fantasy.FinishReasonContentFilter:
+					finishReason = "content_filter"
+				}
+				if finishReason != "" {
+					llmSpan.SetAttributes(attribute.String("gen_ai.response.finish_reason", finishReason))
+				}
+				llmSpan.End()
+				llmSpan = nil
+			}
 			finishReason := message.FinishReasonUnknown
 			switch stepResult.FinishReason {
 			case fantasy.FinishReasonLength:

@@ -35,9 +35,13 @@ func NewListMCPResourcesTool(cfg *config.ConfigStore, permissions permission.Ser
 		ListMCPResourcesToolName,
 		listMCPResourcesDescription,
 		func(ctx context.Context, params ListMCPResourcesParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			ctx, span := otel.StartSpan(ctx, "tool.list_mcp_resources")
+			ctx, span := otel.StartSpan(ctx, "execute_tool list_mcp_resources")
 			defer span.End()
-			span.SetAttributes(attribute.String("tool.name", ListMCPResourcesToolName))
+			span.SetAttributes(
+				attribute.String("gen_ai.tool.name", ListMCPResourcesToolName),
+				attribute.String("gen_ai.tool.call.id", call.ID),
+				attribute.String("gen_ai.tool.call.arguments", call.Input),
+			)
 			params.MCPName = strings.TrimSpace(params.MCPName)
 			if params.MCPName == "" {
 				return fantasy.NewTextErrorResponse("mcp_name parameter is required"), nil

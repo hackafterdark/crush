@@ -37,9 +37,13 @@ func NewReadMCPResourceTool(cfg *config.ConfigStore, permissions permission.Serv
 		ReadMCPResourceToolName,
 		readMCPResourceDescription,
 		func(ctx context.Context, params ReadMCPResourceParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			ctx, span := otel.StartSpan(ctx, "tool.read_mcp_resource")
+			ctx, span := otel.StartSpan(ctx, "execute_tool read_mcp_resource")
 			defer span.End()
-			span.SetAttributes(attribute.String("tool.name", ReadMCPResourceToolName))
+			span.SetAttributes(
+				attribute.String("gen_ai.tool.name", ReadMCPResourceToolName),
+				attribute.String("gen_ai.tool.call.id", call.ID),
+				attribute.String("gen_ai.tool.call.arguments", call.Input),
+			)
 			params.MCPName = strings.TrimSpace(params.MCPName)
 			params.URI = strings.TrimSpace(params.URI)
 			if params.MCPName == "" {

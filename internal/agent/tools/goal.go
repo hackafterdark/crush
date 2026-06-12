@@ -21,10 +21,14 @@ type UpdateGoalInput struct {
 }
 
 func NewUpdateGoalTool(goalService goal.Service) fantasy.AgentTool {
-	return fantasy.NewAgentTool(UpdateGoalToolName, updateGoalDescription, func(ctx context.Context, input UpdateGoalInput, _ fantasy.ToolCall) (fantasy.ToolResponse, error) {
-		ctx, span := otel.StartSpan(ctx, "tool.update_goal")
+	return fantasy.NewAgentTool(UpdateGoalToolName, updateGoalDescription, func(ctx context.Context, input UpdateGoalInput, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
+		ctx, span := otel.StartSpan(ctx, "execute_tool update_goal")
 		defer span.End()
-		span.SetAttributes(attribute.String("tool.name", UpdateGoalToolName))
+		span.SetAttributes(
+			attribute.String("gen_ai.tool.name", UpdateGoalToolName),
+			attribute.String("gen_ai.tool.call.id", call.ID),
+			attribute.String("gen_ai.tool.call.arguments", call.Input),
+		)
 		sessionID, ok := ctx.Value(SessionIDContextKey).(string)
 		if !ok {
 			return fantasy.ToolResponse{}, fmt.Errorf("session id not found in context")

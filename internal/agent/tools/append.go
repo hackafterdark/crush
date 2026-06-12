@@ -57,9 +57,13 @@ func NewAppendTool(
 		AppendToolName,
 		appendDescription,
 		func(ctx context.Context, params AppendParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			ctx, span := otel.StartSpan(ctx, "tool.append")
+			ctx, span := otel.StartSpan(ctx, "execute_tool append")
 			defer span.End()
-			span.SetAttributes(attribute.String("tool.name", AppendToolName))
+			span.SetAttributes(
+				attribute.String("gen_ai.tool.name", AppendToolName),
+				attribute.String("gen_ai.tool.call.id", call.ID),
+				attribute.String("gen_ai.tool.call.arguments", call.Input),
+			)
 			if params.FilePath == "" {
 				return fantasy.NewTextErrorResponse("file_path is required"), nil
 			}

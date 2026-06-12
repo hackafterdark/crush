@@ -127,9 +127,13 @@ func NewGrepTool(workingDir string, config config.ToolGrep) fantasy.AgentTool {
 		GrepToolName,
 		grepDescription(),
 		func(ctx context.Context, params GrepParams, call fantasy.ToolCall) (fantasy.ToolResponse, error) {
-			ctx, span := otel.StartSpan(ctx, "tool.grep")
+			ctx, span := otel.StartSpan(ctx, "execute_tool grep")
 			defer span.End()
-			span.SetAttributes(attribute.String("tool.name", GrepToolName))
+			span.SetAttributes(
+				attribute.String("gen_ai.tool.name", GrepToolName),
+				attribute.String("gen_ai.tool.call.id", call.ID),
+				attribute.String("gen_ai.tool.call.arguments", call.Input),
+			)
 			if params.Pattern == "" {
 				return fantasy.NewTextErrorResponse("pattern is required"), nil
 			}
