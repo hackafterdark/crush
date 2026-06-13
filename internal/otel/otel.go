@@ -138,6 +138,9 @@ func Tracer() trace.Tracer {
 // StartSpan is a convenience wrapper around tracer.Start.
 // If an agent turn span is present in the context (stored via tools.AgentTurnSpanKey),
 // it will be used as the parent span so that tool call spans are properly nested.
+// The returned span is wrapped to ensure a minimum duration of 1µs, preventing
+// "Negative duration detected" warnings from the OTel collector when fast spans
+// end at the same nanosecond they started.
 func StartSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
 	// Check if there's an agent turn span in the context to use as parent.
 	if agentSpan := getAgentTurnSpan(ctx); agentSpan != nil {
@@ -145,7 +148,27 @@ func StartSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) 
 		// This ensures the new span will be a child of the agent turn span.
 		ctx = trace.ContextWithSpan(ctx, agentSpan)
 	}
-	return tracer.Start(ctx, name, opts...)
+	ctx2, span := tracer.Start(ctx, name, opts...)
+	return ctx2, &minDurationSpan{Span: span, start: time.Now()}
+}
+
+// minDurationSpan wraps a trace.Span to ensure a minimum duration of 1µs,
+// preventing "Negative duration detected" warnings from the OTel collector.
+type minDurationSpan struct {
+	trace.Span
+	start time.Time
+}
+
+// End ends the wrapped span. If the span would have a duration less than 1µs,
+// it sleeps briefly to ensure the minimum duration is met.
+func (s *minDurationSpan) End(opts ...trace.SpanEndOption) {
+	elapsed := time.Since(s.start)
+	if elapsed < time.Microsecond {
+		// Sleep briefly to ensure at least 1µs duration.
+		// This prevents the collector from seeing a zero or negative duration.
+		time.Sleep(time.Microsecond - elapsed)
+	}
+	s.Span.End(opts...)
 }
 
 // getAgentTurnSpan retrieves the agent turn span from the context.
