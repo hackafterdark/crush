@@ -557,7 +557,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	// Create the agent turn span that wraps the entire turn (LLM calls + tool
 	// executions). Tool call spans created later will become children of this.
 	agentCtx, agentTurnSpan := otel.StartInvokeAgentSpan(ctx, "Crush", call.SessionID)
-	agentCtx = context.WithValue(agentCtx, tools.AgentTurnSpanKey, agentTurnSpan)
+	agentCtx = context.WithValue(agentCtx, otel.AgentTurnSpan, agentTurnSpan)
 	defer func() {
 		if retErr != nil {
 			otel.RecordError(agentTurnSpan, retErr)
@@ -865,7 +865,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	// Create OTEL span for prompt with attachments.
 	var promptWithAttachmentsSpan trace.Span
 	if len(call.Attachments) > 0 {
-		_, promptWithAttachmentsSpan = otel.StartPromptWithAttachmentsSpan(ctx, call.SessionID, len(call.Attachments))
+		_, promptWithAttachmentsSpan = otel.StartPromptWithAttachmentsSpan(agentCtx, call.SessionID, len(call.Attachments))
 		defer promptWithAttachmentsSpan.End()
 		promptWithAttachmentsSpan.SetAttributes(
 			attribute.Int("prompt.with_attachments.attachment_count", len(call.Attachments)),
@@ -905,7 +905,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		PrepareStep: func(callContext context.Context, options fantasy.PrepareStepFunctionOptions) (_ context.Context, prepared fantasy.PrepareStepResult, err error) {
 			// Create an LLM call span as a child of the agent turn span.
 			// This span represents a single model API call (chat completion).
-			if agentSpan, ok := callContext.Value(tools.AgentTurnSpanKey).(trace.Span); ok && agentSpan != nil {
+			if agentSpan, ok := callContext.Value(otel.AgentTurnSpan).(trace.Span); ok && agentSpan != nil {
 				var llmCtx context.Context
 				llmCtx, llmSpan = otel.StartLLMSpan(callContext, largeModel.ModelCfg.Provider, largeModel.CatwalkCfg.Name)
 				callContext = llmCtx

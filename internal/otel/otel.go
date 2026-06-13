@@ -29,6 +29,14 @@ const (
 	TracerName = "github.com/charmbracelet/crush"
 )
 
+// AgentTurnSpanKey is the context key used to store the agent turn span.
+// It is exported so that other packages (e.g., internal/agent/tools) can
+// store and retrieve the span from context for proper OTel span nesting.
+type agentTurnSpanKey string
+
+// AgentTurnSpan is the context key value for the agent turn span.
+const AgentTurnSpan agentTurnSpanKey = "agent_turn_span"
+
 var tracer trace.Tracer
 
 func init() {
@@ -132,11 +140,9 @@ func StartSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) 
 }
 
 // getAgentTurnSpan retrieves the agent turn span from the context.
-// It uses a known context key type to find the span (matching tools.AgentTurnSpanKey).
+// It uses the exported AgentTurnSpan key to find the span.
 func getAgentTurnSpan(ctx context.Context) trace.Span {
-	type agentTurnSpanKey string
-	const key agentTurnSpanKey = "agent_turn_span"
-	if span, ok := ctx.Value(key).(trace.Span); ok {
+	if span, ok := ctx.Value(AgentTurnSpan).(trace.Span); ok {
 		return span
 	}
 	return nil
