@@ -844,8 +844,42 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 
 	history, files := a.preparePrompt(ctx, msgs, largeModel.CatwalkCfg.SupportsImages, call.Attachments...)
 
+	// Log attachment info for debugging.
+	if len(call.Attachments) > 0 {
+		for i, att := range call.Attachments {
+			slog.Info("Attachment processed in Run",
+				"session_id", call.SessionID,
+				"attachment_index", i,
+				"file_name", att.FileName,
+				"file_path", att.FilePath,
+				"mime_type", att.MimeType,
+				"content_len", len(att.Content),
+				"is_text", att.IsText(),
+			)
+		}
+	}
+
 	startTime := time.Now()
 	a.eventPromptSent(call.SessionID)
+
+	// Create OTEL span for prompt with attachments.
+	var promptWithAttachmentsSpan trace.Span
+	if len(call.Attachments) > 0 {
+		_, promptWithAttachmentsSpan = otel.StartPromptWithAttachmentsSpan(ctx, call.SessionID, len(call.Attachments))
+		defer promptWithAttachmentsSpan.End()
+		promptWithAttachmentsSpan.SetAttributes(
+			attribute.Int("prompt.with_attachments.attachment_count", len(call.Attachments)),
+		)
+	}
+
+	// Build prompt with attachments within the OTEL span.
+	var promptWithAttachmentsResult string
+	if len(call.Attachments) > 0 {
+		promptWithAttachmentsResult = message.PromptWithTextAttachments(call.Prompt, call.Attachments)
+		promptWithAttachmentsSpan.End()
+	} else {
+		promptWithAttachmentsResult = call.Prompt
+	}
 
 	var stepMessages []fantasy.Message
 	var shouldSummarize bool
@@ -858,7 +892,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 		maxOutputTokens = &call.MaxOutputTokens
 	}
 	result, err = agent.Stream(genCtx, fantasy.AgentStreamCall{
-		Prompt:           message.PromptWithTextAttachments(call.Prompt, call.Attachments),
+		Prompt:           promptWithAttachmentsResult,
 		Files:            files,
 		Messages:         history,
 		ProviderOptions:  call.ProviderOptions,
@@ -1727,15 +1761,46 @@ func (a *sessionAgent) preparePrompt(ctx context.Context, msgs []message.Message
 	history = a.deduplicateReasoning(history)
 
 	var files []fantasy.FilePart
-	for _, attachment := range attachments {
+	var textAttachments []string
+	slog.Info("preparePrompt: processing attachments",
+		"attachment_count", len(attachments),
+	)
+	for i, attachment := range attachments {
+		slog.Info("preparePrompt: attachment details",
+			"index", i,
+			"file_name", attachment.FileName,
+			"file_path", attachment.FilePath,
+			"mime_type", attachment.MimeType,
+			"is_text", attachment.IsText(),
+			"content_len", len(attachment.Content),
+		)
 		if attachment.IsText() {
-			continue
+			textAttachments = append(textAttachments, fmt.Sprintf("--- %s ---\n%s", attachment.FileName, string(attachment.Content)))
+		} else {
+			files = append(files, fantasy.FilePart{
+				Filename:  attachment.FileName,
+				Data:      attachment.Content,
+				MediaType: attachment.MimeType,
+			})
 		}
-		files = append(files, fantasy.FilePart{
-			Filename:  attachment.FileName,
-			Data:      attachment.Content,
-			MediaType: attachment.MimeType,
-		})
+	}
+
+	// Embed text attachments as text content in the user message.
+	// The fantasy provider only supports image/* and application/pdf as FilePart,
+	// so text must be sent as inline text.
+	if len(textAttachments) > 0 && len(history) > 0 {
+		textBlock := "Attached files:\n" + strings.Join(textAttachments, "\n\n")
+		if history[len(history)-1].Role == fantasy.MessageRoleUser {
+			// Append to the existing user message content.
+			for i, part := range history[len(history)-1].Content {
+				if tp, ok := fantasy.AsMessagePart[fantasy.TextPart](part); ok {
+					history[len(history)-1].Content[i] = fantasy.TextPart{
+						Text: tp.Text + "\n\n" + textBlock,
+					}
+					break
+				}
+			}
+		}
 	}
 
 	return history, files

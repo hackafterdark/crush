@@ -2099,6 +2099,12 @@ func (m *UI) handleKeyPressMsg(msg tea.KeyPressMsg) tea.Cmd {
 				return tea.Batch(cmds...)
 			}
 
+			if key.Matches(msg, m.keyMap.Editor.PreviewAttachment) {
+				if len(m.attachments.List()) > 0 {
+					cmds = append(cmds, m.openPreviewDialog(m.attachments.List()[0]))
+				}
+			}
+
 			switch {
 			case key.Matches(msg, m.keyMap.Editor.AddImage):
 				if !m.currentModelSupportsImages() {
@@ -2673,6 +2679,7 @@ func (m *UI) FullHelp() [][]key.Binding {
 					[]key.Binding{
 						k.Editor.AttachmentDeleteMode,
 						k.Editor.DeleteAllAttachments,
+						k.Editor.PreviewAttachment,
 						k.Editor.Escape,
 					},
 				)
@@ -2728,6 +2735,7 @@ func (m *UI) FullHelp() [][]key.Binding {
 					[]key.Binding{
 						k.Editor.AttachmentDeleteMode,
 						k.Editor.DeleteAllAttachments,
+						k.Editor.PreviewAttachment,
 						k.Editor.Escape,
 					},
 				)
@@ -3451,6 +3459,19 @@ func (m *UI) sendMessage(content string, attachments ...message.Attachment) tea.
 
 	// Capture session ID to avoid race with main goroutine updating m.session.
 	sessionID := m.session.ID
+	slog.Info("sendMessage: calling AgentRun",
+		"session_id", sessionID,
+		"content_len", len(content),
+		"attachment_count", len(attachments),
+	)
+	for i, att := range attachments {
+		slog.Info("sendMessage: attachment details",
+			"index", i,
+			"file_name", att.FileName,
+			"file_path", att.FilePath,
+			"content_len", len(att.Content),
+		)
+	}
 	cmds = append(cmds, func() tea.Msg {
 		// AgentRun is fire-and-forget: it returns once the prompt has
 		// been accepted (HTTP 202) or synchronously with a validation
@@ -3618,6 +3639,16 @@ func (m *UI) openQuitDialog() tea.Cmd {
 
 	quitDialog := dialog.NewQuit(m.com)
 	m.dialog.OpenDialog(quitDialog)
+	return nil
+}
+
+// openPreviewDialog opens the attachment preview dialog.
+func (m *UI) openPreviewDialog(attach message.Attachment) tea.Cmd {
+	if m.dialog.ContainsDialog(dialog.PreviewID) {
+		m.dialog.CloseDialog(dialog.PreviewID)
+	}
+	previewDialog := dialog.NewPreview(m.com, attach)
+	m.dialog.OpenDialog(previewDialog)
 	return nil
 }
 
@@ -3868,18 +3899,44 @@ func (m *UI) handlePasteMsg(msg tea.PasteMsg) tea.Cmd {
 	if hasPasteExceededThreshold(msg) {
 		return func() tea.Msg {
 			content := []byte(msg.Content)
+			slog.Info("handlePasteMsg: long paste detected",
+				"content_len", len(content),
+				"content_preview", string(content[:min(200, len(content))]),
+			)
 			if int64(len(content)) > common.MaxAttachmentSize {
 				return util.ReportWarn("Paste is too big (>5mb)")
 			}
+			dataDir := m.com.Workspace.Config().Options.DataDirectory
+			attachDir := filepath.Join(dataDir, "attachments")
+			if err := os.MkdirAll(attachDir, 0o700); err != nil {
+				return util.ReportError(fmt.Errorf("failed to create attachments directory: %w", err))
+			}
 			name := fmt.Sprintf("paste_%d.txt", m.pasteIdx())
+			filePath := filepath.Join(attachDir, name)
+			if err := os.WriteFile(filePath, content, 0o600); err != nil {
+				return util.ReportError(fmt.Errorf("failed to write paste to disk: %w", err))
+			}
 			mimeBufferSize := min(512, len(content))
 			mimeType := http.DetectContentType(content[:mimeBufferSize])
-			return message.Attachment{
+			// If MIME type detection returned application/octet-stream but the
+			// file extension suggests a text type, use text/plain instead.
+			// This ensures IsText() returns true for pasted text content.
+			if mimeType == "application/octet-stream" && strings.HasSuffix(name, ".txt") {
+				mimeType = "text/plain"
+			}
+			attach := message.Attachment{
 				FileName: name,
-				FilePath: name,
+				FilePath: filePath,
 				MimeType: mimeType,
 				Content:  content,
 			}
+			slog.Info("handlePasteMsg: creating attachment",
+				"file_name", attach.FileName,
+				"file_path", attach.FilePath,
+				"mime_type", attach.MimeType,
+				"content_len", len(attach.Content),
+			)
+			return attach
 		}
 	}
 

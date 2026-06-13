@@ -176,6 +176,29 @@ func StartLLMSpan(ctx context.Context, provider, model string, opts ...trace.Spa
 	return tracer.Start(ctx, "chat "+model, spanOpts...)
 }
 
+// StartAttachmentSpan creates a span for processing attachments during an agent turn.
+// The span wraps attachment preparation and is marked INTERNAL since Crush runs locally.
+func StartAttachmentSpan(ctx context.Context, sessionID string, attachmentCount int, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
+	attrs := []attribute.KeyValue{
+		attribute.String("attachment.operation", "prepare"),
+		attribute.String("session.id", sessionID),
+		attribute.Int("attachment.count", attachmentCount),
+	}
+	spanOpts := append(opts, trace.WithSpanKind(trace.SpanKindInternal), trace.WithAttributes(attrs...))
+	return tracer.Start(ctx, "attachment_prepare", spanOpts...)
+}
+
+// StartPromptWithAttachmentsSpan creates a span for building the prompt with text attachments.
+func StartPromptWithAttachmentsSpan(ctx context.Context, sessionID string, attachmentCount int, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
+	attrs := []attribute.KeyValue{
+		attribute.String("prompt.operation", "with_attachments"),
+		attribute.String("session.id", sessionID),
+		attribute.Int("attachment.count", attachmentCount),
+	}
+	spanOpts := append(opts, trace.WithSpanKind(trace.SpanKindInternal), trace.WithAttributes(attrs...))
+	return tracer.Start(ctx, "prompt_with_attachments", spanOpts...)
+}
+
 // --- GenAI Semantic Convention Helpers ---
 
 // genAIAttrKeys provides typed attribute keys for GenAI semantic conventions.

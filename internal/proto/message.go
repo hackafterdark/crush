@@ -4,6 +4,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"os"
 	"slices"
 	"time"
 
@@ -623,12 +625,40 @@ type Attachment struct {
 }
 
 // ToMessage converts a proto Attachment to a [message.Attachment].
+// If Content is empty but FilePath is set, it reads the content from the file.
 func (a Attachment) ToMessage() message.Attachment {
+	content := a.Content
+	slog.Info("proto.Attachment.ToMessage",
+		"file_name", a.FileName,
+		"file_path", a.FilePath,
+		"mime_type", a.MimeType,
+		"content_len", len(content),
+	)
+	if len(content) == 0 && a.FilePath != "" {
+		slog.Info("proto.Attachment.ToMessage: reading from file",
+			"file_name", a.FileName,
+			"file_path", a.FilePath,
+		)
+		if data, err := os.ReadFile(a.FilePath); err == nil {
+			slog.Info("proto.Attachment.ToMessage: read from file",
+				"file_name", a.FileName,
+				"file_path", a.FilePath,
+				"read_len", len(data),
+			)
+			content = data
+		} else {
+			slog.Error("proto.Attachment.ToMessage: failed to read from file",
+				"file_name", a.FileName,
+				"file_path", a.FilePath,
+				"error", err,
+			)
+		}
+	}
 	return message.Attachment{
 		FilePath: a.FilePath,
 		FileName: a.FileName,
 		MimeType: a.MimeType,
-		Content:  a.Content,
+		Content:  content,
 	}
 }
 

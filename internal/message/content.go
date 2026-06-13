@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -449,17 +450,22 @@ func PromptWithTextAttachments(prompt string, attachments []Attachment) string {
 			continue
 		}
 		if !addedAttachments {
-			sb.WriteString("\n<system_info>The files below have been attached by the user, consider them in your response</system_info>\n")
+			sb.WriteString("\n\n--- Attached files ---\n")
 			addedAttachments = true
 		}
-		if content.FilePath != "" {
-			fmt.Fprintf(&sb, "<file path='%s'>\n", content.FilePath)
-		} else {
-			sb.WriteString("<file>\n")
+		filename := content.FileName
+		if filename == "" {
+			filename = "attachment"
 		}
-		sb.WriteString("\n")
-		sb.Write(content.Content)
-		sb.WriteString("\n</file>\n")
+		fmt.Fprintf(&sb, "## %s\n\n", filename)
+		// Log attachment content for debugging.
+		if content.Content != nil {
+			fmt.Fprintf(os.Stderr, "[crush:attachment] PromptWithTextAttachments: writing content for %q (len=%d)\n", filename, len(content.Content))
+			sb.Write(content.Content)
+		} else {
+			fmt.Fprintf(os.Stderr, "[crush:attachment] PromptWithTextAttachments: WARNING - nil content for %q\n", filename)
+		}
+		sb.WriteString("\n\n---\n\n")
 	}
 	return sb.String()
 }
