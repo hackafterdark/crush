@@ -105,7 +105,16 @@ func Init(ctx context.Context, cfg config.Observability) (func(context.Context) 
 	}
 
 	tp := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(exporter),
+		sdktrace.WithBatcher(exporter,
+			// Increase batch timeout to give parent spans more time to
+			// end before child spans are flushed. This reduces the
+			// "parent span ID is not in the trace" warnings from the
+			// collector when child spans finish before the parent.
+			sdktrace.WithBatchTimeout(2000*time.Millisecond),
+			sdktrace.WithMaxExportBatchSize(512),
+			sdktrace.WithMaxQueueSize(2048),
+			sdktrace.WithExportTimeout(10*time.Second),
+		),
 		sdktrace.WithResource(res),
 		sdktrace.WithSampler(sdktrace.ParentBased(
 			sdktrace.TraceIDRatioBased(cfg.SamplingRate),
