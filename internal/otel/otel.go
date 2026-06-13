@@ -119,8 +119,36 @@ func Tracer() trace.Tracer {
 }
 
 // StartSpan is a convenience wrapper around tracer.Start.
+// If an agent turn span is present in the context (stored via tools.AgentTurnSpanKey),
+// it will be used as the parent span so that tool call spans are properly nested.
 func StartSpan(ctx context.Context, name string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
+	// Check if there's an agent turn span in the context to use as parent.
+	if agentSpan := getAgentTurnSpan(ctx); agentSpan != nil {
+		// Create a new context with the agent span as the current span.
+		// This ensures the new span will be a child of the agent turn span.
+		ctx = trace.ContextWithSpan(ctx, agentSpan)
+	}
 	return tracer.Start(ctx, name, opts...)
+}
+
+// getAgentTurnSpan retrieves the agent turn span from the context.
+// It uses a known context key type to find the span (matching tools.AgentTurnSpanKey).
+func getAgentTurnSpan(ctx context.Context) trace.Span {
+	type agentTurnSpanKey string
+	const key agentTurnSpanKey = "agent_turn_span"
+	if span, ok := ctx.Value(key).(trace.Span); ok {
+		return span
+	}
+	return nil
+}
+
+// ensureParentSpan checks for an agent turn span in the context and ensures
+// any new span created will be nested under it.
+func ensureParentSpan(ctx context.Context) context.Context {
+	if agentSpan := getAgentTurnSpan(ctx); agentSpan != nil {
+		return trace.ContextWithSpan(ctx, agentSpan)
+	}
+	return ctx
 }
 
 // RecordError records an error on the span and sets the status to Error.
@@ -167,6 +195,8 @@ func StartInvokeAgentSpan(ctx context.Context, agentName, conversationID string,
 // conventions. The span represents a single model API call (e.g. chat completion)
 // and is marked CLIENT since it calls an external API.
 func StartLLMSpan(ctx context.Context, provider, model string, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
+	// Ensure the span is nested under the agent turn span if present.
+	ctx = ensureParentSpan(ctx)
 	attrs := []attribute.KeyValue{
 		attribute.String(string(genAIAttrKeys.OperationName), "chat"),
 		attribute.String(string(genAIAttrKeys.ProviderName), provider),
@@ -179,6 +209,8 @@ func StartLLMSpan(ctx context.Context, provider, model string, opts ...trace.Spa
 // StartAttachmentSpan creates a span for processing attachments during an agent turn.
 // The span wraps attachment preparation and is marked INTERNAL since Crush runs locally.
 func StartAttachmentSpan(ctx context.Context, sessionID string, attachmentCount int, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
+	// Ensure the span is nested under the agent turn span if present.
+	ctx = ensureParentSpan(ctx)
 	attrs := []attribute.KeyValue{
 		attribute.String("attachment.operation", "prepare"),
 		attribute.String("session.id", sessionID),
@@ -190,6 +222,8 @@ func StartAttachmentSpan(ctx context.Context, sessionID string, attachmentCount 
 
 // StartPromptWithAttachmentsSpan creates a span for building the prompt with text attachments.
 func StartPromptWithAttachmentsSpan(ctx context.Context, sessionID string, attachmentCount int, opts ...trace.SpanStartOption) (context.Context, trace.Span) {
+	// Ensure the span is nested under the agent turn span if present.
+	ctx = ensureParentSpan(ctx)
 	attrs := []attribute.KeyValue{
 		attribute.String("prompt.operation", "with_attachments"),
 		attribute.String("session.id", sessionID),

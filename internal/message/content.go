@@ -4,7 +4,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"os"
+	"log/slog"
 	"slices"
 	"strings"
 	"time"
@@ -458,12 +458,11 @@ func PromptWithTextAttachments(prompt string, attachments []Attachment) string {
 			filename = "attachment"
 		}
 		fmt.Fprintf(&sb, "## %s\n\n", filename)
-		// Log attachment content for debugging.
 		if content.Content != nil {
-			fmt.Fprintf(os.Stderr, "[crush:attachment] PromptWithTextAttachments: writing content for %q (len=%d)\n", filename, len(content.Content))
+			slog.Debug("PromptWithTextAttachments: writing attachment content", "filename", filename, "length", len(content.Content))
 			sb.Write(content.Content)
 		} else {
-			fmt.Fprintf(os.Stderr, "[crush:attachment] PromptWithTextAttachments: WARNING - nil content for %q\n", filename)
+			slog.Debug("PromptWithTextAttachments: nil attachment content", "filename", filename)
 		}
 		sb.WriteString("\n\n---\n\n")
 	}
