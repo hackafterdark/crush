@@ -49,7 +49,7 @@ type structuralSearchDescriptionData struct {
 
 func structuralSearchDescription() string {
 	return renderTemplate(structuralSearchDescriptionTpl, structuralSearchDescriptionData{
-		AvailableTemplates: parser.TemplateNames(),
+		AvailableTemplates: parser.TemplateNames("go"),
 	})
 }
 
@@ -59,10 +59,12 @@ type StructuralSearchParams struct {
 	TemplateName string `json:"template_name" description:"The name of the query template to use. Available: find_functions, find_structs, find_variables, find_interfaces, find_calls, find_imports, find_comments."`
 	// Path is the directory to search in. Defaults to the current working directory.
 	Path string `json:"path,omitempty" description:"The directory to search in. Defaults to the current working directory."`
-	// Include is a file pattern to filter by (e.g., "*.go", "internal//*.go").
-	Include string `json:"include,omitempty" description:"File pattern to include in the search (e.g., '*.go', 'internal//*.go'). Defaults to '*.go'."`
+	// Include is a file pattern to filter by (e.g., "*.go", "*.ts").
+	Include string `json:"include,omitempty" description:"File pattern to include in the search (e.g., '*.go', 'internal//*.go'). Defaults to language-specific extensions."`
 	// MaxResults is the maximum number of results to return.
 	MaxResults int `json:"max_results,omitempty" description:"Maximum number of results to return (default: 100)."`
+	// Language is the programming language to search. If empty, auto-detected from file extensions.
+	Language string `json:"language,omitempty" description:"The programming language to search (e.g., 'go', 'typescript', 'javascript', 'python'). If empty, auto-detected from file extensions."`
 }
 
 // StructuralSearchCapture represents a single capture within a match.
@@ -98,10 +100,37 @@ const (
 	StructuralSearchToolName = "structural_search"
 )
 
-func findGoFiles(workingDir, path, include string) ([]string, error) {
+func findFiles(workingDir, path, include string, lang string) ([]string, error) {
 	searchPath := path
 	if searchPath == "" {
 		searchPath = workingDir
+	}
+
+	// Determine file extensions based on language
+	var extensions []string
+	switch lang {
+	case "go":
+		extensions = []string{".go"}
+	case "hcl":
+		extensions = []string{".hcl"}
+	case "cpp":
+		extensions = []string{".cpp", ".cc", ".cxx", ".hpp", ".hxx"}
+	case "typescript":
+		extensions = []string{".ts", ".tsx"}
+	case "javascript":
+		extensions = []string{".js", ".jsx"}
+	case "python":
+		extensions = []string{".py"}
+	case "sql":
+		extensions = []string{".sql"}
+	case "rust":
+		extensions = []string{".rs"}
+	case "php":
+		extensions = []string{".php"}
+	case "java":
+		extensions = []string{".java"}
+	default:
+		extensions = []string{".go"}
 	}
 
 	var files []string
@@ -122,13 +151,18 @@ func findGoFiles(workingDir, path, include string) ([]string, error) {
 			}
 		}
 	} else {
-		// Default: find all .go files
+		// Default: find files with language-specific extensions
 		err := filepath.WalkDir(searchPath, func(path string, d os.DirEntry, err error) error {
 			if err != nil {
 				return nil
 			}
-			if !d.IsDir() && strings.HasSuffix(path, ".go") {
-				files = append(files, path)
+			if !d.IsDir() {
+				for _, ext := range extensions {
+					if strings.HasSuffix(path, ext) {
+						files = append(files, path)
+						break
+					}
+				}
 			}
 			return nil
 		})
@@ -179,20 +213,50 @@ func executeStructuralSearch(ctx context.Context, workingDir string, params Stru
 		searchPath = workingDir
 	}
 
-	files, err := findGoFiles(workingDir, searchPath, params.Include)
+	// Determine language: use explicit param, or detect from first file
+	lang := params.Language
+	if lang == "" {
+		// Detect from include pattern or default to go
+		if params.Include != "" {
+			// Try to infer from include pattern (e.g., "*.sql")
+			ext := filepath.Ext(strings.TrimPrefix(params.Include, "*"))
+			switch ext {
+			case ".go":
+				lang = "go"
+			case ".ts", ".tsx":
+				lang = "typescript"
+			case ".js", ".jsx":
+				lang = "javascript"
+			case ".py":
+				lang = "python"
+			case ".sql":
+				lang = "sql"
+			case ".rs":
+				lang = "rust"
+			case ".java":
+				lang = "java"
+			default:
+				lang = "go"
+			}
+		} else {
+			lang = "go"
+		}
+	}
+
+	files, err := findFiles(workingDir, searchPath, params.Include, lang)
 	if err != nil {
 		return fantasy.NewTextErrorResponse("error finding files: " + err.Error()), nil
 	}
 
 	if len(files) == 0 {
-		return fantasy.NewTextResponse("No Go files found matching the pattern"), nil
+		return fantasy.NewTextResponse("No files found matching the pattern"), nil
 	}
 
-	// Get the query template
-	query, ok := parser.GetTemplate(params.TemplateName)
+	// Get the query template for the language
+	query, ok := parser.GetTemplate(lang, params.TemplateName)
 	if !ok {
-		available := strings.Join(parser.TemplateNames(), ", ")
-		return fantasy.NewTextErrorResponse("unknown template: " + params.TemplateName + ". Available: " + available), nil
+		available := strings.Join(parser.TemplateNames(lang), ", ")
+		return fantasy.NewTextErrorResponse("unknown template: " + params.TemplateName + ". Available for " + lang + ": " + available), nil
 	}
 
 	maxResults := params.MaxResults
@@ -210,8 +274,9 @@ func executeStructuralSearch(ctx context.Context, workingDir string, params Stru
 			continue
 		}
 
-		// Parse with tree-sitter
-		root := parser.Parse(code)
+		// Parse with tree-sitter (detect language from file path for safety)
+		fileLang := parser.DetectLanguage(file)
+		root := parser.Parse(code, fileLang)
 
 		// Run query
 		matches, err := parser.Query(root, code, query)

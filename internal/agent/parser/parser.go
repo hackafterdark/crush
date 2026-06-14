@@ -1,48 +1,119 @@
 package parser
 
 import (
-	"slices"
-	"strconv"
+	"path/filepath"
+	"strings"
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter_csharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
+	sitter_cpp "github.com/tree-sitter/tree-sitter-cpp/bindings/go"
+	sitter_hcl "github.com/tree-sitter-grammars/tree-sitter-hcl/bindings/go"
+	sitter_java "github.com/tree-sitter/tree-sitter-java/bindings/go"
+	sitter_js "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
+	sitter_php "github.com/tree-sitter/tree-sitter-php/bindings/go"
+	sitter_py "github.com/tree-sitter/tree-sitter-python/bindings/go"
+	sitter_rust "github.com/tree-sitter/tree-sitter-rust/bindings/go"
+	sitter_sql "github.com/DerekStride/tree-sitter-sql/bindings/go"
+	sitter_ts "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
 	tsgo "github.com/tree-sitter/tree-sitter-go/bindings/go"
 )
 
-// QueryResult represents a single match from a tree-sitter query.
-type QueryResult struct {
-	// Capture name (e.g., "function", "name", "parameter")
-	Capture string `json:"capture"`
-	// The matched text content
-	Text string `json:"text"`
-	// Start byte offset in the source
-	StartByte uint `json:"start_byte"`
-	// End byte offset in the source
-	EndByte uint `json:"end_byte"`
-	// Start position (row, column) 0-indexed
-	StartPos Pos `json:"start_position"`
-	// End position (row, column) 0-indexed
-	EndPos Pos `json:"end_position"`
+// Language represents a supported programming language.
+type Language string
+
+const (
+	LanguageCSharp     Language = "csharp"
+	LanguageCpp        Language = "cpp"
+	LanguageHcl        Language = "hcl"
+	LanguageGo         Language = "go"
+	LanguageJava       Language = "java"
+	LanguageJavaScript Language = "javascript"
+	LanguagePython     Language = "python"
+	LanguagePHP        Language = "php"
+	LanguageRust       Language = "rust"
+	LanguageSQL        Language = "sql"
+	LanguageTypeScript Language = "typescript"
+)
+
+// SupportedLanguages returns the list of supported language names.
+func SupportedLanguages() []string {
+	return []string{
+		"csharp",
+		"cpp",
+		"hcl",
+		"go",
+		"java",
+		"javascript",
+		"python",
+		"php",
+		"rust",
+		"sql",
+		"typescript",
+	}
 }
 
-// Pos represents a position in the source code.
-type Pos struct {
-	Row    uint `json:"row"`
-	Column uint `json:"column"`
+// GetLanguage returns the tree-sitter language for the given name.
+func GetLanguage(name string) *sitter.Language {
+	switch name {
+	case "go":
+		return sitter.NewLanguage(tsgo.Language())
+	case "cpp":
+		return sitter.NewLanguage(sitter_cpp.Language())
+	case "hcl":
+		return sitter.NewLanguage(sitter_hcl.Language())
+	case "java":
+		return sitter.NewLanguage(sitter_java.Language())
+	case "typescript":
+		return sitter.NewLanguage(sitter_ts.Language_Typescript())
+	case "javascript":
+		return sitter.NewLanguage(sitter_js.Language())
+	case "python":
+		return sitter.NewLanguage(sitter_py.Language())
+	case "php":
+		return sitter.NewLanguage(sitter_php.Language())
+	case "sql":
+		return sitter.NewLanguage(sitter_sql.Language())
+	case "rust":
+		return sitter.NewLanguage(sitter_rust.Language())
+	default:
+		return sitter.NewLanguage(tsgo.Language())
+	}
 }
 
-// Match represents a complete match with all its captures.
-type Match struct {
-	// Index of the match within the query results
-	Index int `json:"index"`
-	// Captures within this match
-	Captures []QueryResult `json:"captures"`
+// DetectLanguage returns the language name based on file extension.
+func DetectLanguage(filePath string) string {
+	ext := strings.ToLower(filepath.Ext(filePath))
+	switch ext {
+	case ".go":
+		return "go"
+	case ".cpp", ".cc", ".cxx", ".hpp", ".hxx":
+		return "cpp"
+	case ".hcl":
+		return "hcl"
+	case ".ts", ".tsx":
+		return "typescript"
+	case ".js", ".jsx":
+		return "javascript"
+	case ".py":
+		return "python"
+	case ".php":
+		return "php"
+	case ".sql":
+		return "sql"
+	case ".rs":
+		return "rust"
+	case ".java":
+		return "java"
+	default:
+		return "go"
+	}
 }
 
-// Parse parses Go source code using tree-sitter and returns the AST root node.
-func Parse(code []byte) *sitter.Node {
+// Parse parses source code using tree-sitter and returns the AST root node.
+func Parse(code []byte, lang string) *sitter.Node {
 	parser := sitter.NewParser()
 	defer parser.Close()
-	parser.SetLanguage(sitter.NewLanguage(tsgo.Language()))
+	parser.SetLanguage(GetLanguage(lang))
 	tree := parser.Parse(code, nil)
 	return tree.RootNode()
 }
@@ -69,7 +140,7 @@ func Query(root *sitter.Node, code []byte, querySExpr string) ([]Match, error) {
 		if match == nil {
 			break
 		}
-		
+
 		if len(match.Captures) == 0 {
 			continue
 		}
