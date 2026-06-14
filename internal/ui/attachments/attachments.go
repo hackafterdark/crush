@@ -39,6 +39,17 @@ type Attachments struct {
 func (m *Attachments) List() []message.Attachment { return m.list }
 func (m *Attachments) Reset()                     { m.list = nil }
 
+// UpdateContent updates the content of the attachment with the given file path.
+func (m *Attachments) UpdateContent(filePath string, newContent []byte) bool {
+	for i, att := range m.list {
+		if att.FilePath == filePath {
+			m.list[i].Content = newContent
+			return true
+		}
+	}
+	return false
+}
+
 func (m *Attachments) Update(msg tea.Msg) bool {
 	switch msg := msg.(type) {
 	case message.Attachment:

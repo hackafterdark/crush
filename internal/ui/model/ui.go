@@ -309,6 +309,9 @@ func New(com *common.Common, initialSessionID string, continueLast bool) *UI {
 	ch := NewChat(com)
 
 	keyMap := DefaultKeyMap()
+	if com.Config() != nil && com.Config().Options != nil && com.Config().Options.TUI != nil && com.Config().Options.TUI.KeyBindings != nil {
+		keyMap = KeyMapFromConfig(com.Config().Options.TUI.KeyBindings)
+	}
 
 	// Completions component
 	comp := completions.New(
@@ -1022,6 +1025,8 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				"response", string(msg.Payload),
 				"options", msg.Options)
 		}
+	case dialog.ActionUpdateAttachment:
+		m.attachments.UpdateContent(msg.FilePath, msg.Content)
 	default:
 		if m.dialog.HasDialogs() {
 			if cmd := m.handleDialogMsg(msg); cmd != nil {
@@ -3647,7 +3652,14 @@ func (m *UI) openPreviewDialog(attach message.Attachment) tea.Cmd {
 	if m.dialog.ContainsDialog(dialog.PreviewID) {
 		m.dialog.CloseDialog(dialog.PreviewID)
 	}
-	previewDialog := dialog.NewPreview(m.com, attach)
+	// Filter to only paste attachments for navigation.
+	var pasteAttachments []message.Attachment
+	for _, at := range m.attachments.List() {
+		if strings.HasPrefix(at.FileName, "paste_") && strings.HasSuffix(at.FileName, ".txt") {
+			pasteAttachments = append(pasteAttachments, at)
+		}
+	}
+	previewDialog := dialog.NewPreview(m.com, attach, pasteAttachments)
 	m.dialog.OpenDialog(previewDialog)
 	return nil
 }
@@ -3887,6 +3899,8 @@ func (m *UI) newSession() tea.Cmd {
 func (m *UI) handlePasteMsg(msg tea.PasteMsg) tea.Cmd {
 	// Normalize \r\n before the textarea sanitizer sees it.
 	msg.Content = strings.ReplaceAll(msg.Content, "\r\n", "\n")
+	// Strip null bytes which can be introduced by some terminals/clipboard formats on Windows.
+	msg.Content = strings.ReplaceAll(msg.Content, "\x00", "")
 
 	if m.dialog.HasDialogs() {
 		return m.handleDialogMsg(msg)

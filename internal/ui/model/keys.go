@@ -1,6 +1,106 @@
 package model
 
-import "charm.land/bubbles/v2/key"
+import (
+	"slices"
+	"sort"
+	"strings"
+
+	"charm.land/bubbles/v2/key"
+)
+
+// KeyBinding represents a single keybinding with its section, keys, and help text.
+type KeyBinding struct {
+	Section string
+	Key     string
+	Help    string
+}
+
+// Bindings returns all keybindings in the keymap as a sorted list.
+func (k KeyMap) Bindings() []KeyBinding {
+	var bindings []KeyBinding
+
+	add := func(section string, b key.Binding, help string) {
+		if len(b.Keys()) == 0 {
+			return
+		}
+		bindings = append(bindings, KeyBinding{
+			Section: section,
+			Key:     strings.Join(b.Keys(), ","),
+			Help:    help,
+		})
+	}
+
+	// Global bindings
+	add("Global", k.Quit, "quit")
+	add("Global", k.Help, "more")
+	add("Global", k.Commands, "commands")
+	add("Global", k.Models, "models")
+	add("Global", k.Suspend, "suspend")
+	add("Global", k.Sessions, "sessions")
+	add("Global", k.Tab, "change focus")
+	add("Global", k.ToggleYolo, "toggle yolo")
+
+	// Editor bindings
+	add("Editor", k.Editor.AddFile, "add file")
+	add("Editor", k.Editor.SendMessage, "send")
+	add("Editor", k.Editor.OpenEditor, "open editor")
+	add("Editor", k.Editor.Newline, "newline")
+	add("Editor", k.Editor.AddImage, "add image")
+	add("Editor", k.Editor.PasteImage, "paste image from clipboard")
+	add("Editor", k.Editor.MentionFile, "mention file")
+	add("Editor", k.Editor.Commands, "commands")
+	add("Editor", k.Editor.AttachmentDeleteMode, "delete attachment at index i")
+	add("Editor", k.Editor.Escape, "cancel delete mode")
+	add("Editor", k.Editor.DeleteAllAttachments, "delete all attachments")
+	add("Editor", k.Editor.PreviewAttachment, "preview attachment")
+	add("Editor", k.Editor.HistoryPrev, "previous message")
+	add("Editor", k.Editor.HistoryNext, "next message")
+	add("Editor", k.Editor.ClearPrompt, "clear prompt")
+
+	// Chat bindings
+	add("Chat", k.Chat.NewSession, "new session")
+	add("Chat", k.Chat.AddAttachment, "add attachment")
+	add("Chat", k.Chat.Cancel, "cancel")
+	add("Chat", k.Chat.Tab, "change focus")
+	add("Chat", k.Chat.Details, "toggle details")
+	add("Chat", k.Chat.TogglePills, "toggle tasks")
+	add("Chat", k.Chat.PillLeft, "switch section")
+	add("Chat", k.Chat.PillRight, "switch section")
+	add("Chat", k.Chat.Down, "down")
+	add("Chat", k.Chat.Up, "up")
+	add("Chat", k.Chat.UpDown, "scroll")
+	add("Chat", k.Chat.UpOneItem, "up one item")
+	add("Chat", k.Chat.DownOneItem, "down one item")
+	add("Chat", k.Chat.UpDownOneItem, "scroll one item")
+	add("Chat", k.Chat.HalfPageDown, "half page down")
+	add("Chat", k.Chat.PageDown, "page down")
+	add("Chat", k.Chat.PageUp, "page up")
+	add("Chat", k.Chat.HalfPageUp, "half page up")
+	add("Chat", k.Chat.Home, "home")
+	add("Chat", k.Chat.End, "end")
+	add("Chat", k.Chat.Copy, "copy")
+	add("Chat", k.Chat.ClearHighlight, "clear selection")
+	add("Chat", k.Chat.Expand, "expand/collapse")
+
+	// Initialize bindings
+	add("Initialize", k.Initialize.Yes, "yes")
+	add("Initialize", k.Initialize.No, "no")
+	add("Initialize", k.Initialize.Switch, "switch")
+	add("Initialize", k.Initialize.Enter, "select")
+
+	// Sort by section then by key
+	sort.Slice(bindings, func(i, j int) bool {
+		if bindings[i].Section != bindings[j].Section {
+			return bindings[i].Section < bindings[j].Section
+		}
+		return bindings[i].Key < bindings[j].Key
+	})
+
+	// Deduplicate by key within each section
+	return slices.CompactFunc(bindings, func(a, b KeyBinding) bool {
+		return a.Section == b.Section && a.Key == b.Key
+	})
+}
 
 type KeyMap struct {
 	Editor struct {
@@ -277,6 +377,272 @@ func DefaultKeyMap() KeyMap {
 		key.WithKeys("enter"),
 		key.WithHelp("enter", "select"),
 	)
+
+	return km
+}
+
+// parseKeyBinding parses a comma-separated key string (e.g., "ctrl+alt+v")
+// and returns a *key.Binding, or nil if the string is empty.
+func parseKeyBinding(keys string) *key.Binding {
+	if keys == "" {
+		return nil
+	}
+	b := key.NewBinding(key.WithKeys(strings.Split(keys, ",")...))
+	return &b
+}
+
+// KeyMapFromConfig builds a KeyMap using config overrides where provided,
+// falling back to DefaultKeyMap() for any binding not specified.
+func KeyMapFromConfig(keybindings map[string]string) KeyMap {
+	km := DefaultKeyMap()
+
+	// Global bindings
+	if v, ok := keybindings["quit"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Quit = *b
+		}
+	}
+	if v, ok := keybindings["help"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Help = *b
+		}
+	}
+	if v, ok := keybindings["commands"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Commands = *b
+		}
+	}
+	if v, ok := keybindings["models"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Models = *b
+		}
+	}
+	if v, ok := keybindings["suspend"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Suspend = *b
+		}
+	}
+	if v, ok := keybindings["sessions"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Sessions = *b
+		}
+	}
+	if v, ok := keybindings["tab"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Tab = *b
+		}
+	}
+	if v, ok := keybindings["toggle_yolo"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.ToggleYolo = *b
+		}
+	}
+
+	// Editor bindings
+	if v, ok := keybindings["send_message"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Editor.SendMessage = *b
+		}
+	}
+	if v, ok := keybindings["open_editor"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Editor.OpenEditor = *b
+		}
+	}
+	if v, ok := keybindings["newline"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Editor.Newline = *b
+		}
+	}
+	if v, ok := keybindings["add_image"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Editor.AddImage = *b
+		}
+	}
+	if v, ok := keybindings["paste_image"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Editor.PasteImage = *b
+		}
+	}
+	if v, ok := keybindings["mention_file"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Editor.MentionFile = *b
+		}
+	}
+	if v, ok := keybindings["add_file"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Editor.AddFile = *b
+		}
+	}
+	if v, ok := keybindings["attachment_delete_mode"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Editor.AttachmentDeleteMode = *b
+		}
+	}
+	if v, ok := keybindings["attachment_escape"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Editor.Escape = *b
+		}
+	}
+	if v, ok := keybindings["delete_all_attachments"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Editor.DeleteAllAttachments = *b
+		}
+	}
+	if v, ok := keybindings["preview_attachment"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Editor.PreviewAttachment = *b
+		}
+	}
+	if v, ok := keybindings["history_prev"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Editor.HistoryPrev = *b
+		}
+	}
+	if v, ok := keybindings["history_next"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Editor.HistoryNext = *b
+		}
+	}
+	if v, ok := keybindings["clear_prompt"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Editor.ClearPrompt = *b
+		}
+	}
+
+	// Chat bindings
+	if v, ok := keybindings["new_session"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Chat.NewSession = *b
+		}
+	}
+	if v, ok := keybindings["add_attachment"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Chat.AddAttachment = *b
+		}
+	}
+	if v, ok := keybindings["cancel"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Chat.Cancel = *b
+		}
+	}
+	if v, ok := keybindings["details"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Chat.Details = *b
+		}
+	}
+	if v, ok := keybindings["toggle_pills"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Chat.TogglePills = *b
+		}
+	}
+	if v, ok := keybindings["pill_left"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Chat.PillLeft = *b
+		}
+	}
+	if v, ok := keybindings["pill_right"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Chat.PillRight = *b
+		}
+	}
+	if v, ok := keybindings["scroll_down"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Chat.Down = *b
+		}
+	}
+	if v, ok := keybindings["scroll_up"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Chat.Up = *b
+		}
+	}
+	if v, ok := keybindings["scroll"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Chat.UpDown = *b
+		}
+	}
+	if v, ok := keybindings["scroll_one_item_up"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Chat.UpOneItem = *b
+		}
+	}
+	if v, ok := keybindings["scroll_one_item_down"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Chat.DownOneItem = *b
+		}
+	}
+	if v, ok := keybindings["scroll_one_item"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Chat.UpDownOneItem = *b
+		}
+	}
+	if v, ok := keybindings["half_page_down"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Chat.HalfPageDown = *b
+		}
+	}
+	if v, ok := keybindings["page_down"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Chat.PageDown = *b
+		}
+	}
+	if v, ok := keybindings["page_up"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Chat.PageUp = *b
+		}
+	}
+	if v, ok := keybindings["half_page_up"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Chat.HalfPageUp = *b
+		}
+	}
+	if v, ok := keybindings["home"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Chat.Home = *b
+		}
+	}
+	if v, ok := keybindings["end"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Chat.End = *b
+		}
+	}
+	if v, ok := keybindings["copy"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Chat.Copy = *b
+		}
+	}
+	if v, ok := keybindings["clear_highlight"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Chat.ClearHighlight = *b
+		}
+	}
+	if v, ok := keybindings["expand"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Chat.Expand = *b
+		}
+	}
+
+	// Initialize bindings
+	if v, ok := keybindings["initialize_yes"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Initialize.Yes = *b
+		}
+	}
+	if v, ok := keybindings["initialize_no"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Initialize.No = *b
+		}
+	}
+	if v, ok := keybindings["initialize_switch"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Initialize.Switch = *b
+		}
+	}
+	if v, ok := keybindings["initialize_enter"]; ok {
+		if b := parseKeyBinding(v); b != nil {
+			km.Initialize.Enter = *b
+		}
+	}
 
 	return km
 }

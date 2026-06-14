@@ -217,8 +217,9 @@ type TUIOptions struct {
 	// Here we can add themes later or any TUI related options
 	//
 
-	Completions Completions `json:"completions,omitzero" jsonschema:"description=Completions UI options"`
-	Transparent *bool       `json:"transparent,omitempty" jsonschema:"description=Enable transparent background for the TUI interface,default=false"`
+	Completions Completions       `json:"completions,omitzero" jsonschema:"description=Completions UI options"`
+	Transparent *bool             `json:"transparent,omitempty" jsonschema:"description=Enable transparent background for the TUI interface,default=false"`
+	KeyBindings map[string]string `json:"keybindings,omitempty" jsonschema:"description=Custom TUI key bindings. Keys are binding names, values are key combinations (e.g., \"ctrl+alt+v\"). Unspecified bindings use defaults."`
 }
 
 // Completions defines options for the completions UI.

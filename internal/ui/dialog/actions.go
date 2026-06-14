@@ -139,6 +139,12 @@ type (
 	}
 )
 
+// ActionUpdateAttachment is sent when the content of an attachment is updated in the preview dialog.
+type ActionUpdateAttachment struct {
+	FilePath string
+	Content  []byte
+}
+
 // ActionCmd represents an action that carries a [tea.Cmd] to be passed to the
 // Bubble Tea program loop.
 type ActionCmd struct {
