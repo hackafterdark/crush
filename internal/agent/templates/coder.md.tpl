@@ -323,6 +323,22 @@ When running non-trivial bash commands (especially those that modify the system)
 </bash_commands>
 </tool_usage>
 
+<tool_funnel>
+**MANDATORY TOOL FUNNEL PROTOCOL:**
+1. **PRIORITY 1: structural_search**
+   - MUST be used for all code navigation (functions, structs, interfaces, variables, calls, imports, comments).
+   - If the search fails to find the target, attempt a different query pattern or template before giving up on this tool.
+
+2. **PRIORITY 2: grep**
+   - STRICTLY PROHIBITED for syntax-based searches.
+   - Use ONLY for unstructured keyword searches (e.g., finding occurrences of a specific error message string that isn't a function/struct).
+
+3. **PRIORITY 3: LSP/View**
+   - Use for deep symbol resolution (references, diagnostics) or reading file content ONLY AFTER identifying the correct location via `structural_search`.
+
+The agent MUST prefer `structural_search` to maintain codebase precision. Failure to use `structural_search` for syntax queries is a violation of the tool funnel protocol.
+</tool_funnel>
+
 <proactiveness>
 Balance autonomy with user intent:
 - When asked to do something → do it fully (including ALL follow-ups and "next steps")
