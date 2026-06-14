@@ -773,6 +773,294 @@ var Templates = map[string]map[string]string{
 (comment) @comment
 `,
 	},
+
+	"ruby": {
+		"find_functions": `
+(method
+  name: (identifier) @name
+  parameters: (method_parameters) @parameters
+  body: (body_statement) @body)
+
+(singleton_method
+  name: (identifier) @name
+  parameters: (method_parameters) @parameters
+  body: (body_statement) @body)
+`,
+
+		"find_structs": `
+(class
+  name: (constant) @name
+  body: (body_statement) @body)
+
+(module) @name
+`,
+
+		"find_variables": `
+(assignment
+  left: (identifier) @name
+  right: (_) @value)
+`,
+
+		"find_interfaces": ``,
+
+		"find_calls": `
+(call
+  method: (identifier) @method_name
+  arguments: (argument_list) @arguments)
+`,
+
+		"find_imports": ``,
+
+		"find_comments": `
+(comment) @comment
+`,
+	},
+
+	"json": {
+		"find_functions": ``,
+
+		"find_structs": `
+(object
+  (pair
+    key: (string) @name
+    value: (object) @body))
+`,
+
+		"find_variables": `
+(pair
+  key: (string) @name
+  value: (_) @value)
+`,
+
+		"find_interfaces": ``,
+
+		"find_calls": ``,
+
+		"find_imports": ``,
+
+		"find_comments": `
+(comment) @comment
+`,
+	},
+
+	"html": {
+		"find_functions": ``,
+
+		"find_structs": `
+(element
+  name: (tag_name) @name
+  children: (element_children) @body)
+`,
+
+		"find_variables": `
+(attribute
+  name: (attribute_name) @name
+  value: (attribute_value) @value)
+`,
+
+		"find_interfaces": ``,
+
+		"find_calls": ``,
+
+		"find_imports": `
+(element
+  name: (tag_name) @import_path
+  (start_tag
+    (attribute
+      name: (attribute_name) @import_name)))
+`,
+
+		"find_comments": `
+(comment) @comment
+`,
+	},
+
+	"css": {
+		"find_functions": ``,
+
+		"find_structs": `
+(rule_set
+  selector: (selector_list) @name
+  block: (block) @body)
+`,
+
+		"find_variables": `
+(custom_property
+  name: (property_name) @name
+  value: (value) @value)
+`,
+
+		"find_interfaces": ``,
+
+		"find_calls": ``,
+
+		"find_imports": `
+(import_statement
+  string) @import_path)
+`,
+
+		"find_comments": `
+(comment) @comment
+`,
+	},
+
+	"toml": {
+		"find_functions": ``,
+
+		"find_structs": `
+(table
+  name: (key) @name
+  value: (array) @body)
+`,
+
+		"find_variables": `
+(pair
+  key: (key) @name
+  value: (_) @value)
+`,
+
+		"find_interfaces": ``,
+
+		"find_calls": ``,
+
+		"find_imports": ``,
+
+		"find_comments": `
+(comment) @comment
+`,
+	},
+
+	"scala": {
+		"find_functions": `
+(function_definition
+  name: (identifier) @name
+  parameters: (formal_parameter_list) @parameters
+  body: (block) @body)
+`,
+
+		"find_structs": `
+(class_definition
+  name: (identifier) @name
+  body: (class_body) @body)
+
+(object_definition
+  name: (identifier) @name
+  body: (template_body) @body)
+`,
+
+		"find_variables": `
+(definition
+  pattern: (identifier) @name
+  value: (_) @value)
+`,
+
+		"find_interfaces": `
+(trait_definition
+  name: (identifier) @name
+  body: (template_body) @body)
+`,
+
+		"find_calls": `
+(call_expression
+  function: (identifier) @function_name
+  arguments: (argument_list) @arguments)
+`,
+
+		"find_imports": `
+(import_declaration
+  (scoped_identifier) @import_path)
+`,
+
+		"find_comments": `
+(comment) @comment
+`,
+	},
+
+	"c": {
+		"find_functions": `
+(function_definition
+  declarator: (function_declarator
+    parameters: (parameters) @parameters)
+  body: (compound_statement) @body)
+`,
+
+		"find_structs": `
+(struct_specifier
+  name: (type_identifier) @name
+  body: (struct_body) @body)
+`,
+
+		"find_variables": `
+(declaration
+  declarator: (identifier) @name
+  type: (_) @type)
+
+(init_declarator
+  declarator: (identifier) @name
+  value: (_) @value)
+`,
+
+		"find_interfaces": ``,
+
+		"find_calls": `
+(call_expression
+  function: (identifier) @function_name
+  arguments: (arguments) @arguments)
+
+(call_expression
+  function: (field_expression
+    field: (identifier) @method_name)
+  arguments: (arguments) @arguments)
+`,
+
+		"find_imports": `
+(preproc_include
+  path: (string_literal) @import_path)
+
+(preproc_include
+  path: (system_lib_string) @import_path)
+`,
+
+		"find_comments": `
+(comment) @comment
+`,
+	},
+
+	"bash": {
+		"find_functions": `
+(function_definition
+  name: (identifier) @name
+  parameters: (formal_parameters) @parameters
+  body: (compound_statement) @body)
+`,
+
+		"find_structs": ``,
+
+		"find_variables": `
+(variable_assignment
+  name: (identifier) @name
+  value: (_) @value)
+`,
+
+		"find_interfaces": ``,
+
+		"find_calls": `
+(command
+  name: (word) @function_name
+  arguments: (_) @arguments)
+`,
+
+		"find_imports": `
+(allocation
+  value: (pipeline
+    (command
+      name: (word) @import_path)))
+`,
+
+		"find_comments": `
+(comment) @comment
+`,
+	},
 }
 
 // GetTemplate returns the tree-sitter query for the given language and template name.

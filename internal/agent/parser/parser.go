@@ -5,10 +5,18 @@ import (
 	"strings"
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
+	sitter_bash "github.com/tree-sitter/tree-sitter-bash/bindings/go"
 	sitter_csharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
 	sitter_cpp "github.com/tree-sitter/tree-sitter-cpp/bindings/go"
+	sitter_c "github.com/tree-sitter/tree-sitter-c/bindings/go"
+	sitter_json "github.com/tree-sitter/tree-sitter-json/bindings/go"
+	sitter_html "github.com/tree-sitter/tree-sitter-html/bindings/go"
+	sitter_css "github.com/tree-sitter/tree-sitter-css/bindings/go"
+	sitter_toml "github.com/tree-sitter-grammars/tree-sitter-toml/bindings/go"
+	sitter_scala "github.com/tree-sitter/tree-sitter-scala/bindings/go"
 	sitter_hcl "github.com/tree-sitter-grammars/tree-sitter-hcl/bindings/go"
 	sitter_java "github.com/tree-sitter/tree-sitter-java/bindings/go"
+	sitter_ruby "github.com/tree-sitter/tree-sitter-ruby/bindings/go"
 	sitter_js "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
 	sitter_php "github.com/tree-sitter/tree-sitter-php/bindings/go"
 	sitter_py "github.com/tree-sitter/tree-sitter-python/bindings/go"
@@ -23,9 +31,17 @@ type Language string
 
 const (
 	LanguageCSharp     Language = "csharp"
+	LanguageBash       Language = "bash"
 	LanguageCpp        Language = "cpp"
+	LanguageC          Language = "c"
 	LanguageHcl        Language = "hcl"
 	LanguageGo         Language = "go"
+	LanguageJSON       Language = "json"
+	LanguageHtml       Language = "html"
+	LanguageCss        Language = "css"
+	LanguageToml       Language = "toml"
+	LanguageScala      Language = "scala"
+	LanguageRuby       Language = "ruby"
 	LanguageJava       Language = "java"
 	LanguageJavaScript Language = "javascript"
 	LanguagePython     Language = "python"
@@ -39,15 +55,23 @@ const (
 func SupportedLanguages() []string {
 	return []string{
 		"csharp",
+		"c",
+		"bash",
 		"cpp",
 		"hcl",
 		"go",
 		"java",
 		"javascript",
+		"json",
+		"html",
+		"css",
+		"toml",
+		"scala",
 		"python",
 		"php",
 		"rust",
 		"sql",
+		"ruby",
 		"typescript",
 	}
 }
@@ -59,6 +83,10 @@ func GetLanguage(name string) *sitter.Language {
 		return sitter.NewLanguage(tsgo.Language())
 	case "cpp":
 		return sitter.NewLanguage(sitter_cpp.Language())
+	case "c":
+		return sitter.NewLanguage(sitter_c.Language())
+	case "bash":
+		return sitter.NewLanguage(sitter_bash.Language())
 	case "hcl":
 		return sitter.NewLanguage(sitter_hcl.Language())
 	case "java":
@@ -75,6 +103,18 @@ func GetLanguage(name string) *sitter.Language {
 		return sitter.NewLanguage(sitter_sql.Language())
 	case "rust":
 		return sitter.NewLanguage(sitter_rust.Language())
+	case "ruby":
+		return sitter.NewLanguage(sitter_ruby.Language())
+	case "json":
+		return sitter.NewLanguage(sitter_json.Language())
+	case "html":
+		return sitter.NewLanguage(sitter_html.Language())
+	case "css":
+		return sitter.NewLanguage(sitter_css.Language())
+	case "toml":
+		return sitter.NewLanguage(sitter_toml.Language())
+	case "scala":
+		return sitter.NewLanguage(sitter_scala.Language())
 	default:
 		return sitter.NewLanguage(tsgo.Language())
 	}
@@ -88,8 +128,24 @@ func DetectLanguage(filePath string) string {
 		return "go"
 	case ".cpp", ".cc", ".cxx", ".hpp", ".hxx":
 		return "cpp"
+	case ".c", ".h":
+		return "c"
+	case ".sh":
+		return "bash"
 	case ".hcl":
 		return "hcl"
+	case ".rb":
+		return "ruby"
+	case ".json":
+		return "json"
+	case ".html":
+		return "html"
+	case ".css":
+		return "css"
+	case ".toml":
+		return "toml"
+	case ".scala", ".sbt":
+		return "scala"
 	case ".ts", ".tsx":
 		return "typescript"
 	case ".js", ".jsx":

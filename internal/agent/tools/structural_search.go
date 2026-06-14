@@ -111,8 +111,24 @@ func findFiles(workingDir, path, include string, lang string) ([]string, error) 
 	switch lang {
 	case "go":
 		extensions = []string{".go"}
+	case "c":
+		extensions = []string{".c", ".h"}
+	case "bash":
+		extensions = []string{".sh"}
 	case "hcl":
 		extensions = []string{".hcl"}
+	case "ruby":
+		extensions = []string{".rb"}
+	case "json":
+		extensions = []string{".json"}
+	case "html":
+		extensions = []string{".html", ".htm"}
+	case "css":
+		extensions = []string{".css"}
+	case "toml":
+		extensions = []string{".toml"}
+	case "scala":
+		extensions = []string{".scala", ".sbt"}
 	case "cpp":
 		extensions = []string{".cpp", ".cc", ".cxx", ".hpp", ".hxx"}
 	case "typescript":
@@ -129,6 +145,8 @@ func findFiles(workingDir, path, include string, lang string) ([]string, error) 
 		extensions = []string{".php"}
 	case "java":
 		extensions = []string{".java"}
+	case "csharp":
+		extensions = []string{".cs"}
 	default:
 		extensions = []string{".go"}
 	}
