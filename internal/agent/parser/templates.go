@@ -649,60 +649,6 @@ var Templates = map[string]map[string]string{
 `,
 	},
 
-	"cpp": {
-		"find_functions": `
-(function_definition
-  declarator: (function_declarator
-    parameters: (parameter_list) @parameters)
-  body: (compound_statement) @body)
-`,
-
-		"find_structs": `
-(class_specifier
-  name: (type_identifier) @name
-  body: (field_declaration_list) @class_body)
-
-(struct_specifier
-  name: (type_identifier) @name
-  body: (field_declaration_list) @struct_body)
-`,
-
-		"find_variables": `
-(declaration
-  declarator: (identifier) @name
-  type: (_) @type)
-
-(init_declarator
-  declarator: (identifier) @name
-  value: (_) @value)
-`,
-
-		"find_interfaces": ``,
-
-		"find_calls": `
-(call_expression
-  function: (identifier) @function_name
-  arguments: (argument_list) @arguments)
-
-(call_expression
-  function: (field_expression
-    field: (identifier) @method_name)
-  arguments: (argument_list) @arguments)
-`,
-
-		"find_imports": `
-(preproc_include
-  path: (string_literal) @import_path)
-
-(preproc_include
-  path: (system_lib_string) @import_path)
-`,
-
-		"find_comments": `
-(comment) @comment
-`,
-	},
-
 	"hcl": {
 		"find_functions": `
 (attribute
@@ -728,42 +674,6 @@ var Templates = map[string]map[string]string{
 		"find_calls": `
 (function_call
   function_name: (identifier) @function_name
-  arguments: (arguments) @arguments)
-`,
-
-		"find_imports": ``,
-
-		"find_comments": `
-(comment) @comment
-`,
-	},
-
-	"hcl": {
-		"find_functions": `
-(block
-  type: (identifier) @name
-  labels: (block_label) @labels
-  body: (body) @body)
-`,
-
-		"find_structs": `
-(block
-  type: (identifier) @name
-  labels: (block_label) @labels
-  body: (body) @body)
-`,
-
-		"find_variables": `
-(attribute
-  name: (identifier) @name
-  value: (expression) @value)
-`,
-
-		"find_interfaces": ``,
-
-		"find_calls": `
-(function_call
-  function: (identifier) @function_name
   arguments: (arguments) @arguments)
 `,
 

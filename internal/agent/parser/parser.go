@@ -2,29 +2,54 @@ package parser
 
 import (
 	"path/filepath"
+	"strconv"
 	"strings"
 
+	lang_bash "github.com/charmbracelet/crush/internal/agent/parser/bash"
+	lang_cpp "github.com/charmbracelet/crush/internal/agent/parser/cpp"
+	lang_c "github.com/charmbracelet/crush/internal/agent/parser/c"
+	lang_css "github.com/charmbracelet/crush/internal/agent/parser/css"
+	lang_csharp "github.com/charmbracelet/crush/internal/agent/parser/csharp"
+	lang_go "github.com/charmbracelet/crush/internal/agent/parser/go"
+	lang_hcl "github.com/charmbracelet/crush/internal/agent/parser/hcl"
+	lang_html "github.com/charmbracelet/crush/internal/agent/parser/html"
+	lang_java "github.com/charmbracelet/crush/internal/agent/parser/java"
+	lang_javascript "github.com/charmbracelet/crush/internal/agent/parser/javascript"
+	lang_json "github.com/charmbracelet/crush/internal/agent/parser/json"
+	lang_php "github.com/charmbracelet/crush/internal/agent/parser/php"
+	lang_python "github.com/charmbracelet/crush/internal/agent/parser/python"
+	lang_ruby "github.com/charmbracelet/crush/internal/agent/parser/ruby"
+	lang_rust "github.com/charmbracelet/crush/internal/agent/parser/rust"
+	lang_scala "github.com/charmbracelet/crush/internal/agent/parser/scala"
+	lang_toml "github.com/charmbracelet/crush/internal/agent/parser/toml"
+	lang_typescript "github.com/charmbracelet/crush/internal/agent/parser/typescript"
+
+	"golang.org/x/exp/slices"
+
 	sitter "github.com/tree-sitter/go-tree-sitter"
-	sitter_bash "github.com/tree-sitter/tree-sitter-bash/bindings/go"
-	sitter_csharp "github.com/tree-sitter/tree-sitter-c-sharp/bindings/go"
-	sitter_cpp "github.com/tree-sitter/tree-sitter-cpp/bindings/go"
-	sitter_c "github.com/tree-sitter/tree-sitter-c/bindings/go"
-	sitter_json "github.com/tree-sitter/tree-sitter-json/bindings/go"
-	sitter_html "github.com/tree-sitter/tree-sitter-html/bindings/go"
-	sitter_css "github.com/tree-sitter/tree-sitter-css/bindings/go"
-	sitter_toml "github.com/tree-sitter-grammars/tree-sitter-toml/bindings/go"
-	sitter_scala "github.com/tree-sitter/tree-sitter-scala/bindings/go"
-	sitter_hcl "github.com/tree-sitter-grammars/tree-sitter-hcl/bindings/go"
-	sitter_java "github.com/tree-sitter/tree-sitter-java/bindings/go"
-	sitter_ruby "github.com/tree-sitter/tree-sitter-ruby/bindings/go"
-	sitter_js "github.com/tree-sitter/tree-sitter-javascript/bindings/go"
-	sitter_php "github.com/tree-sitter/tree-sitter-php/bindings/go"
-	sitter_py "github.com/tree-sitter/tree-sitter-python/bindings/go"
-	sitter_rust "github.com/tree-sitter/tree-sitter-rust/bindings/go"
-	sitter_sql "github.com/DerekStride/tree-sitter-sql/bindings/go"
-	sitter_ts "github.com/tree-sitter/tree-sitter-typescript/bindings/go"
-	tsgo "github.com/tree-sitter/tree-sitter-go/bindings/go"
 )
+
+// Match represents a single query match result.
+type Match struct {
+	Index    int
+	Captures []QueryResult
+}
+
+// QueryResult represents a captured node in a query match.
+type QueryResult struct {
+	Capture   string
+	Text      string
+	StartByte uint32
+	EndByte   uint32
+	StartPos  Pos
+	EndPos    Pos
+}
+
+// Pos represents a position in source code.
+type Pos struct {
+	Row    uint
+	Column uint
+}
 
 // Language represents a supported programming language.
 type Language string
@@ -80,43 +105,45 @@ func SupportedLanguages() []string {
 func GetLanguage(name string) *sitter.Language {
 	switch name {
 	case "go":
-		return sitter.NewLanguage(tsgo.Language())
+		return lang_go.GetLanguage()
 	case "cpp":
-		return sitter.NewLanguage(sitter_cpp.Language())
+		return lang_cpp.GetLanguage()
 	case "c":
-		return sitter.NewLanguage(sitter_c.Language())
+		return lang_c.GetLanguage()
 	case "bash":
-		return sitter.NewLanguage(sitter_bash.Language())
+		return lang_bash.GetLanguage()
 	case "hcl":
-		return sitter.NewLanguage(sitter_hcl.Language())
+		return lang_hcl.GetLanguage()
+	case "csharp":
+		return lang_csharp.GetLanguage()
 	case "java":
-		return sitter.NewLanguage(sitter_java.Language())
+		return lang_java.GetLanguage()
 	case "typescript":
-		return sitter.NewLanguage(sitter_ts.Language_Typescript())
+		return lang_typescript.GetLanguage()
 	case "javascript":
-		return sitter.NewLanguage(sitter_js.Language())
+		return lang_javascript.GetLanguage()
 	case "python":
-		return sitter.NewLanguage(sitter_py.Language())
+		return lang_python.GetLanguage()
 	case "php":
-		return sitter.NewLanguage(sitter_php.Language())
+		return lang_php.GetLanguage()
 	case "sql":
-		return sitter.NewLanguage(sitter_sql.Language())
+		return lang_go.GetLanguage() // SQL not yet vendored — falls back to Go
 	case "rust":
-		return sitter.NewLanguage(sitter_rust.Language())
+		return lang_rust.GetLanguage()
 	case "ruby":
-		return sitter.NewLanguage(sitter_ruby.Language())
+		return lang_ruby.GetLanguage()
 	case "json":
-		return sitter.NewLanguage(sitter_json.Language())
+		return lang_json.GetLanguage()
 	case "html":
-		return sitter.NewLanguage(sitter_html.Language())
+		return lang_html.GetLanguage()
 	case "css":
-		return sitter.NewLanguage(sitter_css.Language())
+		return lang_css.GetLanguage()
 	case "toml":
-		return sitter.NewLanguage(sitter_toml.Language())
+		return lang_toml.GetLanguage()
 	case "scala":
-		return sitter.NewLanguage(sitter_scala.Language())
+		return lang_scala.GetLanguage()
 	default:
-		return sitter.NewLanguage(tsgo.Language())
+		return lang_go.GetLanguage()
 	}
 }
 
@@ -209,8 +236,8 @@ func Query(root *sitter.Node, code []byte, querySExpr string) ([]Match, error) {
 			captures = append(captures, QueryResult{
 				Capture:   captureName,
 				Text:      nodeToString(&cap.Node, code),
-				StartByte: cap.Node.StartByte(),
-				EndByte:   cap.Node.EndByte(),
+				StartByte: uint32(cap.Node.StartByte()),
+				EndByte:   uint32(cap.Node.EndByte()),
 				StartPos: Pos{
 					Row:    cap.Node.StartPosition().Row,
 					Column: cap.Node.StartPosition().Column,
