@@ -890,21 +890,22 @@ var Templates = map[string]map[string]string{
 		"find_functions": `
 (function_definition
   declarator: (function_declarator
-    parameters: (parameters) @parameters)
+    parameters: (parameter_list) @parameters)
   body: (compound_statement) @body)
 `,
 
 		"find_structs": `
 (struct_specifier
   name: (type_identifier) @name
-  body: (struct_body) @body)
+  body: (field_declaration_list) @body)
+
+(type_definition
+  (struct_specifier
+    body: (field_declaration_list) @body)
+  (type_identifier) @name)
 `,
 
 		"find_variables": `
-(declaration
-  declarator: (identifier) @name
-  type: (_) @type)
-
 (init_declarator
   declarator: (identifier) @name
   value: (_) @value)
@@ -915,12 +916,12 @@ var Templates = map[string]map[string]string{
 		"find_calls": `
 (call_expression
   function: (identifier) @function_name
-  arguments: (arguments) @arguments)
+  arguments: (argument_list) @arguments)
 
 (call_expression
   function: (field_expression
-    field: (identifier) @method_name)
-  arguments: (arguments) @arguments)
+    field: (field_identifier) @method_name)
+  arguments: (argument_list) @arguments)
 `,
 
 		"find_imports": `
