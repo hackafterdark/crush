@@ -187,6 +187,8 @@ func DetectLanguage(filePath string) string {
 		return "rust"
 	case ".java":
 		return "java"
+	case ".cs":
+		return "csharp"
 	default:
 		return "go"
 	}

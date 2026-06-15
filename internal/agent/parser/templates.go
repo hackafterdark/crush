@@ -694,6 +694,63 @@ var Templates = map[string]map[string]string{
 `,
 	},
 
+	"csharp": {
+		"find_functions": `
+(method_declaration
+  (identifier) @name
+  (parameter_list) @parameters
+  (block) @body)
+
+(constructor_declaration
+  (identifier) @name
+  (parameter_list) @parameters
+  (block) @body)
+`,
+
+		"find_structs": `
+(class_declaration
+  name: (identifier) @name
+  body: (declaration_list) @body)
+
+(record_declaration
+  name: (identifier) @name
+  body: (declaration_list) @body)
+`,
+
+		"find_variables": `
+(local_declaration_statement
+  (variable_declaration
+    (variable_declarator
+      (identifier) @name)))
+`,
+
+		"find_interfaces": ``,
+
+		"find_calls": `
+(invocation_expression
+  function: (identifier) @function_name
+  arguments: (argument_list) @arguments)
+
+(invocation_expression
+  function: (member_access_expression
+    (identifier) @method_name)
+  arguments: (argument_list) @arguments)
+`,
+
+		"find_imports": `
+(using_directive
+  (identifier) @import_path)
+
+(using_directive
+  (qualified_name
+    (identifier) @import_path))
+`,
+
+		"find_comments": `
+(comment) @comment
+`,
+	},
+
 	"ruby": {
 		"find_functions": `
 (method
