@@ -596,9 +596,14 @@ var Templates = map[string]map[string]string{
 		"find_functions": `
 (function_definition
   (function_declarator
-    (qualified_identifier
-      (identifier) @name))
-  (parameter_list) @parameters
+    (identifier) @name
+    (parameter_list) @parameters)
+  (compound_statement) @body)
+
+(function_definition
+  (function_declarator
+    (field_identifier) @name
+    (parameter_list) @parameters)
   (compound_statement) @body)
 `,
 
@@ -633,6 +638,11 @@ var Templates = map[string]map[string]string{
 (call_expression
   function: (qualified_identifier
     (identifier) @function_name)
+  arguments: (argument_list) @arguments)
+
+(call_expression
+  function: (field_expression
+    field: (field_identifier) @method_name)
   arguments: (argument_list) @arguments)
 `,
 
