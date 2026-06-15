@@ -25,10 +25,7 @@ var Templates = map[string]map[string]string{
 (type_spec
   name: (type_identifier) @name
   type: (struct_type
-    fields: (struct_field_declaration_list
-      (struct_field_declaration
-        name: (field_identifier) @field_name
-        type: (_) @field_type))) @struct_body)
+    (field_declaration_list)))
 `,
 
 		"find_variables": `
@@ -40,6 +37,17 @@ var Templates = map[string]map[string]string{
 (var_declaration
   (var_spec
     name: (identifier)))
+
+(short_var_declaration
+  (expression_list
+    (identifier) @name)
+  (expression_list))
+
+(short_var_declaration
+  (expression_list
+    (identifier) @name)
+  (expression_list
+    (_) @value))
 `,
 
 		"find_interfaces": `
