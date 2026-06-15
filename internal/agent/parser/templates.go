@@ -697,14 +697,19 @@ var Templates = map[string]map[string]string{
 	"csharp": {
 		"find_functions": `
 (method_declaration
-  (identifier) @name
-  (parameter_list) @parameters
-  (block) @body)
+  name: (identifier) @name
+  parameters: (parameter_list) @parameters
+  body: (block) @body)
+
+(method_declaration
+  name: (identifier) @name
+  parameters: (parameter_list) @parameters
+  body: (arrow_expression_clause) @body)
 
 (constructor_declaration
-  (identifier) @name
-  (parameter_list) @parameters
-  (block) @body)
+  name: (identifier) @name
+  parameters: (parameter_list) @parameters
+  body: (block) @body)
 `,
 
 		"find_structs": `
@@ -857,23 +862,51 @@ var Templates = map[string]map[string]string{
 
 		"find_structs": `
 (rule_set
-  selector: (selector_list) @name
-  block: (block) @body)
+  (selectors) @name
+  (block) @body)
+
+(media_statement
+  (feature_query) @name
+  (block) @body)
 `,
 
 		"find_variables": `
-(custom_property
-  name: (property_name) @name
-  value: (value) @value)
+(declaration
+  (property_name) @name
+  (call_expression) @value)
+
+(declaration
+  (property_name) @name
+  (color_value) @value)
+
+(declaration
+  (property_name) @name
+  (integer_value) @value)
+
+(declaration
+  (property_name) @name
+  (float_value) @value)
+
+(declaration
+  (property_name) @name
+  (string_value) @value)
+
+(declaration
+  (property_name) @name
+  (plain_value) @value)
 `,
 
 		"find_interfaces": ``,
 
-		"find_calls": ``,
+		"find_calls": `
+(call_expression
+  (function_name) @name
+  (arguments) @arguments)
+`,
 
 		"find_imports": `
 (import_statement
-  string) @import_path)
+  (string) @import_path)
 `,
 
 		"find_comments": `
