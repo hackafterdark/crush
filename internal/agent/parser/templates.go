@@ -90,6 +90,10 @@ var Templates = map[string]map[string]string{
   parameters: (formal_parameters) @parameters
   body: (statement_block) @body)
 
+(function_declaration
+  name: (identifier) @name
+  parameters: (_) @parameters)
+
 (arrow_function
   parameters: (formal_parameters) @parameters
   body: (statement_block) @body)
@@ -112,10 +116,8 @@ var Templates = map[string]map[string]string{
 (class_declaration
   name: (type_identifier) @name
   body: (class_body
-    (field_definition
-      name: (property_identifier) @field_name
-      type: (type_annotation
-        type: (_) @field_type))))
+    (_
+      name: (property_identifier) @field_name)))
 
 (type_alias_declaration
   name: (type_identifier) @name
@@ -142,11 +144,7 @@ var Templates = map[string]map[string]string{
 		"find_interfaces": `
 (interface_declaration
   name: (type_identifier) @name
-  body: (interface_body
-    (property_signature
-      name: (property_identifier) @method_name
-      type: (type_annotation
-        type: (_) @method_type))) @interface_body)
+  body: (interface_body))
 `,
 
 		"find_calls": `
@@ -162,22 +160,17 @@ var Templates = map[string]map[string]string{
 
 		"find_imports": `
 (import_statement
-  source: (string) @import_path
   (import_clause
     (named_imports
       (import_specifier
-        name: (_) @import_name)))
+        name: (identifier) @import_name)))
+  (string) @import_path)
 
 (import_statement
-  source: (string) @import_path
   (import_clause
     (namespace_import
-      name: (_) @import_name)))
-
-(import_statement
-  source: (string) @import_path
-  (import_require_clause
-    (identifier) @import_name))
+      (identifier) @import_name))
+  (string) @import_path)
 `,
 
 		"find_comments": `
@@ -260,17 +253,17 @@ var Templates = map[string]map[string]string{
 
 		"find_imports": `
 (import_statement
-  source: (string) @import_path
   (import_clause
     (named_imports
       (import_specifier
-        name: (_) @import_name)))
+        name: (identifier) @import_name)))
+  (string) @import_path)
 
 (import_statement
-  source: (string) @import_path
   (import_clause
     (namespace_import
-      name: (_) @import_name)))
+      (identifier) @import_name))
+  (string) @import_path)
 `,
 
 		"find_comments": `
