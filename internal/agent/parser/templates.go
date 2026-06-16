@@ -998,33 +998,36 @@ var Templates = map[string]map[string]string{
 	"bash": {
 		"find_functions": `
 (function_definition
-  name: (identifier) @name
-  parameters: (formal_parameters) @parameters
+  name: (word) @name
   body: (compound_statement) @body)
+
+(function_definition
+  name: (word) @name)
 `,
 
 		"find_structs": ``,
 
 		"find_variables": `
 (variable_assignment
-  name: (identifier) @name
+  name: (variable_name) @name
   value: (_) @value)
+
+(variable_assignment
+  name: (variable_name) @name)
 `,
 
 		"find_interfaces": ``,
 
 		"find_calls": `
 (command
-  name: (word) @function_name
-  arguments: (_) @arguments)
+  name: (command_name (word)) @function_name)
+
+(command
+  name: (command_name (word)) @function_name
+  argument: (_) @arguments)
 `,
 
-		"find_imports": `
-(allocation
-  value: (pipeline
-    (command
-      name: (word) @import_path)))
-`,
+		"find_imports": ``,
 
 		"find_comments": `
 (comment) @comment
