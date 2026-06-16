@@ -18,6 +18,7 @@ import (
 	"charm.land/fantasy"
 	"github.com/charmbracelet/crush/internal/agent/hyper"
 	"github.com/charmbracelet/crush/internal/agent/notify"
+	"github.com/charmbracelet/crush/internal/agent/parser"
 	"github.com/charmbracelet/crush/internal/agent/prompt"
 	"github.com/charmbracelet/crush/internal/agent/tools"
 	"github.com/charmbracelet/crush/internal/config"
@@ -147,6 +148,9 @@ type coordinator struct {
 	skillTracker *skills.Tracker
 
 	readyWg errgroup.Group
+
+	prompt     *prompt.Prompt
+	largeModel Model
 }
 
 func NewCoordinator(
@@ -175,6 +179,11 @@ func NewCoordinator(
 		allSkills, activeSkills = discoverSkills(cfg)
 	}
 	skillTracker := skills.NewTracker(activeSkills)
+
+	// Reload custom queries initially.
+	if err := parser.ReloadQueries(cfg.WorkingDir()); err != nil {
+		slog.Error("Failed to reload queries on startup", "error", err)
+	}
 
 	c := &coordinator{
 		cfg:          cfg,
@@ -211,6 +220,14 @@ func NewCoordinator(
 	}
 	c.currentAgent = agent
 	c.agents[config.AgentCoder] = agent
+
+	// Start watcher for custom queries directory.
+	if err := parser.StartWatcher(cfg.WorkingDir(), func() {
+		c.reloadQueriesAndPrompt(context.Background())
+	}); err != nil {
+		slog.Warn("Failed to start custom queries file watcher", "error", err)
+	}
+
 	return c, nil
 }
 
@@ -609,6 +626,11 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 		return nil, err
 	}
 
+	if !isSubAgent {
+		c.prompt = prompt
+		c.largeModel = large
+	}
+
 	largeProviderCfg, _ := c.cfg.Config().Providers.Get(large.ModelCfg.Provider)
 	result := NewSessionAgent(SessionAgentOptions{
 		LargeModel:           large,
@@ -630,6 +652,18 @@ func (c *coordinator) buildAgent(ctx context.Context, prompt *prompt.Prompt, age
 		systemPrompt, err := prompt.Build(ctx, large.Model.Provider(), large.Model.Model(), c.cfg)
 		if err != nil {
 			return err
+		}
+		if !isSubAgent {
+			caps := parser.GetCapabilities()
+			if len(caps) > 0 {
+				var sb strings.Builder
+				sb.WriteString(systemPrompt)
+				sb.WriteString("\n\nYou have the following custom AST search capabilities available in the structural_search tool:\n")
+				for _, cap := range caps {
+					sb.WriteString(fmt.Sprintf("- ID: %s, Language: %s: %s\n", cap.ID, cap.Language, cap.Description))
+				}
+				systemPrompt = sb.String()
+			}
 		}
 		result.SetSystemPrompt(systemPrompt)
 		return nil
@@ -696,6 +730,7 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 		tools.NewGlobTool(c.cfg.WorkingDir()),
 		tools.NewGrepTool(c.cfg.WorkingDir(), c.cfg.Config().Tools.Grep),
 		tools.NewStructuralSearchTool(c.cfg.WorkingDir()),
+		tools.NewReloadQueriesTool(c.cfg.WorkingDir()),
 		tools.NewLsTool(c.permissions, c.cfg.WorkingDir(), c.cfg.Config().Tools.Ls),
 		tools.NewSourcegraphTool(nil),
 		tools.NewTodosTool(c.sessions),
@@ -1140,7 +1175,39 @@ func (c *coordinator) Cancel(sessionID string) {
 }
 
 func (c *coordinator) CancelAll() {
+	parser.CloseWatcher()
 	c.currentAgent.CancelAll()
+}
+
+func (c *coordinator) reloadQueriesAndPrompt(ctx context.Context) {
+	if err := parser.ReloadQueries(c.cfg.WorkingDir()); err != nil {
+		slog.Error("Failed to reload queries during sync", "error", err)
+	}
+
+	if c.prompt == nil {
+		return
+	}
+
+	systemPrompt, err := c.prompt.Build(ctx, c.largeModel.Model.Provider(), c.largeModel.Model.Model(), c.cfg)
+	if err != nil {
+		slog.Error("Failed to build system prompt during reload", "error", err)
+		return
+	}
+
+	caps := parser.GetCapabilities()
+	if len(caps) > 0 {
+		var sb strings.Builder
+		sb.WriteString(systemPrompt)
+		sb.WriteString("\n\nYou have the following custom AST search capabilities available in the structural_search tool:\n")
+		for _, cap := range caps {
+			sb.WriteString(fmt.Sprintf("- ID: %s, Language: %s: %s\n", cap.ID, cap.Language, cap.Description))
+		}
+		systemPrompt = sb.String()
+	}
+
+	if c.currentAgent != nil {
+		c.currentAgent.SetSystemPrompt(systemPrompt)
+	}
 }
 
 func (c *coordinator) ClearQueue(sessionID string) {

@@ -1035,23 +1035,10 @@ var Templates = map[string]map[string]string{
 // GetTemplate returns the tree-sitter query for the given language and template name.
 // Returns an empty string and false if the template doesn't exist.
 func GetTemplate(lang, name string) (string, bool) {
-	langTemplates, ok := Templates[lang]
-	if !ok {
-		return "", false
-	}
-	query, ok := langTemplates[name]
-	return query, ok
+	return Registry.GetTemplate(lang, name)
 }
 
 // TemplateNames returns a sorted list of available template names for the given language.
 func TemplateNames(lang string) []string {
-	langTemplates, ok := Templates[lang]
-	if !ok {
-		return nil
-	}
-	names := make([]string, 0, len(langTemplates))
-	for name := range langTemplates {
-		names = append(names, name)
-	}
-	return names
+	return Registry.TemplateNames(lang)
 }

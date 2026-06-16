@@ -1,15 +1,16 @@
 package parser
 
 import (
+	"log/slog"
 	"path/filepath"
 	"strconv"
 	"strings"
 
 	lang_bash "github.com/charmbracelet/crush/internal/agent/parser/bash"
-	lang_cpp "github.com/charmbracelet/crush/internal/agent/parser/cpp"
 	lang_c "github.com/charmbracelet/crush/internal/agent/parser/c"
-	lang_css "github.com/charmbracelet/crush/internal/agent/parser/css"
+	lang_cpp "github.com/charmbracelet/crush/internal/agent/parser/cpp"
 	lang_csharp "github.com/charmbracelet/crush/internal/agent/parser/csharp"
+	lang_css "github.com/charmbracelet/crush/internal/agent/parser/css"
 	lang_go "github.com/charmbracelet/crush/internal/agent/parser/go"
 	lang_hcl "github.com/charmbracelet/crush/internal/agent/parser/hcl"
 	lang_html "github.com/charmbracelet/crush/internal/agent/parser/html"
@@ -58,18 +59,18 @@ type Pos struct {
 type Language string
 
 const (
-	LanguageCSharp     Language = "csharp"
-	LanguageBash       Language = "bash"
-	LanguageCpp        Language = "cpp"
-	LanguageC          Language = "c"
-	LanguageHcl        Language = "hcl"
-	LanguageGo         Language = "go"
-	LanguageJSON       Language = "json"
-	LanguageHtml       Language = "html"
-	LanguageCss        Language = "css"
-	LanguageToml       Language = "toml"
-	LanguageScala      Language = "scala"
-	LanguageRuby       Language = "ruby"
+	LanguageCSharp Language = "csharp"
+	LanguageBash   Language = "bash"
+	LanguageCpp    Language = "cpp"
+	LanguageC      Language = "c"
+	LanguageHcl    Language = "hcl"
+	LanguageGo     Language = "go"
+	LanguageJSON   Language = "json"
+	LanguageHtml   Language = "html"
+	LanguageCss    Language = "css"
+	LanguageToml   Language = "toml"
+	LanguageScala  Language = "scala"
+	LanguageRuby   Language = "ruby"
 	// LanguageJava     Language = "java" — Java not supported (requires external scanner)
 	LanguageJavaScript Language = "javascript"
 	LanguagePython     Language = "python"
@@ -209,7 +210,14 @@ func Parse(code []byte, lang string) *sitter.Node {
 	return tree.RootNode()
 }
 
-func Query(root *sitter.Node, code []byte, querySExpr string) ([]Match, error) {
+func Query(root *sitter.Node, code []byte, lang, id string) ([]Match, error) {
+	// Look up the query S-expression from the registry.
+	// If not found, treat the id parameter as the raw S-expression query directly.
+	querySExpr, ok := Registry.GetTemplate(lang, id)
+	if !ok {
+		querySExpr = id
+	}
+
 	language := root.Language()
 	query, queryErr := sitter.NewQuery(language, querySExpr)
 	if queryErr != nil {
@@ -262,6 +270,8 @@ func Query(root *sitter.Node, code []byte, querySExpr string) ([]Match, error) {
 		})
 		matchCount++
 	}
+
+	slog.Info("Executed structural search query", "lang", lang, "query_id", id, "matches", len(results))
 
 	return results, nil
 }

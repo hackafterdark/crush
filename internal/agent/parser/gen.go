@@ -12,9 +12,9 @@ import (
 )
 
 var langs = []struct {
-	name      string
-	goPackage string
-	funcName  string
+	name       string
+	goPackage  string
+	funcName   string
 	hasScanner bool
 }{
 	{"go", "lang_go", "tree_sitter_go", false},

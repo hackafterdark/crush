@@ -298,8 +298,8 @@ func executeStructuralSearch(ctx context.Context, workingDir string, params Stru
 	}
 
 	// Get the query template for the language
-	query, ok := parser.GetTemplate(lang, params.TemplateName)
-	if !ok {
+	_, ok := parser.GetTemplate(lang, params.TemplateName)
+	if !ok && !strings.HasPrefix(strings.TrimSpace(params.TemplateName), "(") {
 		available := strings.Join(parser.TemplateNames(lang), ", ")
 		return fantasy.NewTextErrorResponse("unknown template: " + params.TemplateName + ". Available for " + lang + ": " + available), nil
 	}
@@ -325,7 +325,7 @@ func executeStructuralSearch(ctx context.Context, workingDir string, params Stru
 		root := parser.Parse(code, fileLang)
 
 		// Run query
-		matches, err := parser.Query(root, code, query)
+		matches, err := parser.Query(root, code, fileLang, params.TemplateName)
 		if err != nil {
 			os.WriteFile("F:/hackafterdark/crush/debug_queryerr.txt", []byte("query error: "+err.Error()), 0o644)
 			continue
@@ -360,8 +360,21 @@ func executeStructuralSearch(ctx context.Context, workingDir string, params Stru
 
 done:
 	if len(allResults) == 0 {
+		msg := "No matches found."
+		if cap, ok := parser.GetCapability(lang, params.TemplateName); ok {
+			var guidanceParts []string
+			if cap.Guidance != "" {
+				guidanceParts = append(guidanceParts, "Guidance: "+cap.Guidance)
+			}
+			if cap.Preconditions != "" {
+				guidanceParts = append(guidanceParts, "Preconditions: "+cap.Preconditions)
+			}
+			if len(guidanceParts) > 0 {
+				msg += "\n" + strings.Join(guidanceParts, "\n")
+			}
+		}
 		return fantasy.WithResponseMetadata(
-			fantasy.NewTextResponse("No matches found"),
+			fantasy.NewTextResponse(msg),
 			structuralSearchResponse{
 				Matches:       nil,
 				TotalMatches:  0,
