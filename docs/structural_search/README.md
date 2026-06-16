@@ -156,6 +156,8 @@ $env:PATH = "F:/msys64/ucrt64/bin;" + $env:Path
 go build -o crush.exe .
 ```
 
+Or in one command:
+
 ```
 $env:CGO_ENABLED="1"; $env:GOTOOLCHAIN="auto"; $env:PATH="F:/msys64/ucrt64/bin;" + $env:Path; go build -o crush-sitter.exe .
 ```

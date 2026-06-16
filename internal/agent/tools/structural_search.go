@@ -254,7 +254,32 @@ func executeStructuralSearch(ctx context.Context, workingDir string, params Stru
 				lang = "sql"
 			case ".rs":
 				lang = "rust"
-			// ".java" — Java not supported (requires external scanner)
+			case ".java":
+				lang = "java"
+			case ".php":
+				lang = "php"
+			case ".cpp", ".cc", ".cxx", ".hpp", ".hxx":
+				lang = "cpp"
+			case ".cs":
+				lang = "csharp"
+			case ".hcl", ".tf":
+				lang = "hcl"
+			case ".css":
+				lang = "css"
+			case ".toml":
+				lang = "toml"
+			case ".scala", ".sbt":
+				lang = "scala"
+			case ".c", ".h":
+				lang = "c"
+			case ".sh":
+				lang = "bash"
+			case ".json":
+				lang = "json"
+			case ".html", ".htm":
+				lang = "html"
+			case ".rb":
+				lang = "ruby"
 			default:
 				lang = "go"
 			}
