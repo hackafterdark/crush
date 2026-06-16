@@ -13,7 +13,10 @@ import (
 	lang_go "github.com/charmbracelet/crush/internal/agent/parser/go"
 	lang_hcl "github.com/charmbracelet/crush/internal/agent/parser/hcl"
 	lang_html "github.com/charmbracelet/crush/internal/agent/parser/html"
-	lang_java "github.com/charmbracelet/crush/internal/agent/parser/java"
+	// Java support requires an external scanner (scanner.c) that is not
+	// present in the vendored grammar. See:
+	//   https://github.com/tree-sitter/tree-sitter-java
+	// lang_java "github.com/charmbracelet/crush/internal/agent/parser/java"
 	lang_javascript "github.com/charmbracelet/crush/internal/agent/parser/javascript"
 	lang_json "github.com/charmbracelet/crush/internal/agent/parser/json"
 	lang_php "github.com/charmbracelet/crush/internal/agent/parser/php"
@@ -67,7 +70,7 @@ const (
 	LanguageToml       Language = "toml"
 	LanguageScala      Language = "scala"
 	LanguageRuby       Language = "ruby"
-	LanguageJava       Language = "java"
+	// LanguageJava     Language = "java" — Java not supported (requires external scanner)
 	LanguageJavaScript Language = "javascript"
 	LanguagePython     Language = "python"
 	LanguagePHP        Language = "php"
@@ -85,7 +88,7 @@ func SupportedLanguages() []string {
 		"cpp",
 		"hcl",
 		"go",
-		"java",
+		// "java" — requires external scanner not present in vendored grammar
 		"javascript",
 		"json",
 		"html",
@@ -116,8 +119,7 @@ func GetLanguage(name string) *sitter.Language {
 		return lang_hcl.GetLanguage()
 	case "csharp":
 		return lang_csharp.GetLanguage()
-	case "java":
-		return lang_java.GetLanguage()
+	// Java not supported — requires external scanner not present in vendored grammar
 	case "typescript":
 		return lang_typescript.GetLanguage()
 	case "javascript":
@@ -185,8 +187,7 @@ func DetectLanguage(filePath string) string {
 		return "sql"
 	case ".rs":
 		return "rust"
-	case ".java":
-		return "java"
+	// ".java" — Java not supported (requires external scanner)
 	case ".cs":
 		return "csharp"
 	default:

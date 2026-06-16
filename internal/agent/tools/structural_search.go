@@ -143,8 +143,7 @@ func findFiles(workingDir, path, include string, lang string) ([]string, error) 
 		extensions = []string{".rs"}
 	case "php":
 		extensions = []string{".php"}
-	case "java":
-		extensions = []string{".java"}
+	// "java" — Java not supported (requires external scanner not present in vendored grammar)
 	case "csharp":
 		extensions = []string{".cs"}
 	default:
@@ -251,8 +250,7 @@ func executeStructuralSearch(ctx context.Context, workingDir string, params Stru
 				lang = "sql"
 			case ".rs":
 				lang = "rust"
-			case ".java":
-				lang = "java"
+			// ".java" — Java not supported (requires external scanner)
 			default:
 				lang = "go"
 			}

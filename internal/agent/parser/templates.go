@@ -465,68 +465,7 @@ var Templates = map[string]map[string]string{
 `,
 	},
 
-	"java": {
-		"find_functions": `
-(method_declaration
-  name: (identifier) @name
-  parameters: (formal_parameters) @parameters
-  body: (block) @body)
-`,
-
-		"find_structs": `
-(class_declaration
-  name: (identifier) @name
-  body: (class_body
-    (field_declaration
-      type: (_) @field_type
-      declarator: (variable_declarator
-        name: (identifier) @field_name))) @class_body)
-`,
-
-		"find_variables": `
-(variable_declaration
-  type: (type_identifier) @type
-  declarator: (variable_declarator
-    name: (identifier) @name
-    value: (_) @value))
-
-(local_variable_declaration
-  type: (type_identifier) @type
-  declarator: (variable_declarator
-    name: (identifier) @name
-    value: (_) @value))
-`,
-
-		"find_interfaces": `
-(interface_declaration
-  name: (identifier) @name
-  body: (interface_body
-    (method_declaration) @method_name)) @interface_body)
-`,
-
-		"find_calls": `
-(method_invocation
-  name: (identifier) @method_name
-  arguments: (formal_arguments) @arguments)
-
-(method_invocation
-  name: (identifier) @function_name
-  arguments: (formal_arguments) @arguments)
-`,
-
-		"find_imports": `
-(import_declaration
-  name: (scoped_name
-    name: (_) @import_name))
-`,
-
-		"find_comments": `
-(line_comment) @comment
-
-(block_comment) @comment
-`,
-	},
-
+	// "java" — Java not supported (requires external scanner not present in vendored grammar)
 	"php": {
 		"find_functions": `
 (function_definition

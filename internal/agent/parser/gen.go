@@ -22,7 +22,7 @@ var langs = []struct {
 	{"javascript", "lang_javascript", "tree_sitter_javascript", true},
 	{"python", "lang_python", "tree_sitter_python", true},
 	{"rust", "lang_rust", "tree_sitter_rust", true},
-	{"java", "lang_java", "tree_sitter_java", false},
+	// {"java", "lang_java", "tree_sitter_java", false} — Java not supported (requires external scanner)
 	{"csharp", "lang_csharp", "tree_sitter_c_sharp", true},
 	{"php", "lang_php", "tree_sitter_php", true},
 	{"cpp", "lang_cpp", "tree_sitter_cpp", true},
