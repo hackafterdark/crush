@@ -168,6 +168,9 @@ func TestFindJSFunctions(t *testing.T) {
 		t.Errorf("AST contains ERROR node:\n%s", ast)
 	}
 
+	astStr := formatNode(tree.RootNode(), code, "")
+	os.WriteFile("debug_js_ast.txt", []byte(astStr), 0o644)
+
 	// Verify structural_search query 'find_structs' execution.
 	structMatches, err := Query(tree.RootNode(), code, "javascript", "find_structs")
 	if err != nil {
@@ -182,8 +185,37 @@ func TestFindJSFunctions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("find_functions query failed: %v", err)
 	}
-	if len(funcMatches) != 2 {
-		t.Errorf("expected 2 matches for find_functions (representing standalone functions), got %d", len(funcMatches))
+	if len(funcMatches) != 4 {
+		t.Errorf("expected 4 matches for find_functions (representing standalone functions), got %d", len(funcMatches))
+	}
+
+	// Verify custom async query matches correctly.
+	asyncPattern := `
+(function_declaration
+  "async"
+  name: (identifier) @function_name)
+`
+	asyncMatches, err := Query(tree.RootNode(), code, "javascript", asyncPattern)
+	if err != nil {
+		t.Fatalf("async query failed: %v", err)
+	}
+
+	var matchedNames []string
+	for _, m := range asyncMatches {
+		for _, cap := range m.Captures {
+			if cap.Capture == "function_name" {
+				matchedNames = append(matchedNames, cap.Text)
+			}
+		}
+	}
+
+	if len(matchedNames) != 2 {
+		t.Errorf("expected 2 async function matches, got %d: %v", len(matchedNames), matchedNames)
+	}
+	if len(matchedNames) >= 2 {
+		if matchedNames[0] != "fetchPersons" || matchedNames[1] != "loadPersons" {
+			t.Errorf("expected fetchPersons and loadPersons, got %v", matchedNames)
+		}
 	}
 }
 
