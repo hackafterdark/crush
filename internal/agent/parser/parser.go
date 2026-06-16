@@ -24,7 +24,7 @@ import (
 	// lang_ruby "github.com/charmbracelet/crush/internal/agent/parser/ruby"
 	lang_rust "github.com/charmbracelet/crush/internal/agent/parser/rust"
 	lang_scala "github.com/charmbracelet/crush/internal/agent/parser/scala"
-	lang_toml "github.com/charmbracelet/crush/internal/agent/parser/toml"
+	// lang_toml "github.com/charmbracelet/crush/internal/agent/parser/toml"
 	lang_typescript "github.com/charmbracelet/crush/internal/agent/parser/typescript"
 
 	"golang.org/x/exp/slices"
@@ -94,6 +94,7 @@ func SupportedLanguages() []string {
 		"html",
 		"css",
 		"toml",
+		// "toml" — TOML not supported (tree-sitter-toml grammar issues)
 		"scala",
 		"python",
 		"php",
@@ -141,8 +142,9 @@ func GetLanguage(name string) *sitter.Language {
 		return lang_html.GetLanguage()
 	case "css":
 		return lang_css.GetLanguage()
-	case "toml":
-		return lang_toml.GetLanguage()
+	// case "toml": — TOML not supported (tree-sitter-toml grammar issues)
+	// case "toml":
+	// 	return lang_toml.GetLanguage()
 	case "scala":
 		return lang_scala.GetLanguage()
 	default:

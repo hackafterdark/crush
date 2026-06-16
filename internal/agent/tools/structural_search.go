@@ -128,6 +128,9 @@ func findFiles(workingDir, path, include string, lang string) ([]string, error) 
 		extensions = []string{".css"}
 	case "toml":
 		extensions = []string{".toml"}
+	// case "toml": — TOML not supported (tree-sitter-toml grammar issues)
+	// case "toml":
+	// 	extensions = []string{".toml"}
 	case "scala":
 		extensions = []string{".scala", ".sbt"}
 	case "cpp":

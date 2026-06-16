@@ -856,14 +856,19 @@ var Templates = map[string]map[string]string{
 
 		"find_structs": `
 (table
-  name: (key) @name
-  value: (array) @body)
+  (dotted_key) @name)
+
+(table_array_element
+  (dotted_key) @name)
 `,
 
 		"find_variables": `
 (pair
-  key: (key) @name
-  value: (_) @value)
+  (dotted_key) @name
+  (_) @value)
+
+(pair
+  (dotted_key) @name)
 `,
 
 		"find_interfaces": ``,
