@@ -407,17 +407,18 @@ var Templates = map[string]map[string]string{
 		"find_functions": `
 (function_item
   name: (identifier) @name
-  parameters: (formal_parameter_list) @parameters
+  parameters: (parameters) @parameters
+  body: (block) @body)
+
+(function_item
+  name: (identifier) @name
   body: (block) @body)
 `,
 
 		"find_structs": `
 (struct_item
   name: (type_identifier) @name
-  body: (field_declaration_list
-    (field_declaration
-      name: (identifier) @field_name
-      type: (_) @field_type))) @struct_body)
+  body: (_) @struct_body)
 `,
 
 		"find_variables": `
@@ -431,20 +432,12 @@ var Templates = map[string]map[string]string{
 
 		"find_interfaces": `
 (trait_item
-  name: (identifier) @name
-  body: (trait_item_body
-    (function_item) @method_name)) @trait_body)
+  name: (identifier) @name)
 `,
 
 		"find_calls": `
 (call_expression
-  function: (identifier) @function_name
-  arguments: (arguments) @arguments)
-
-(call_expression
-  function: (field_expression
-    field: (identifier) @method_name)
-  arguments: (arguments) @arguments)
+  function: (_) @function_name)
 `,
 
 		"find_imports": `
@@ -710,36 +703,30 @@ var Templates = map[string]map[string]string{
 	"ruby": {
 		"find_functions": `
 (method
-  name: (identifier) @name
-  parameters: (method_parameters) @parameters
-  body: (body_statement) @body)
+  name: (_) @name)
 
 (singleton_method
-  name: (identifier) @name
-  parameters: (method_parameters) @parameters
-  body: (body_statement) @body)
+  name: (_) @name)
 `,
 
 		"find_structs": `
 (class
-  name: (constant) @name
-  body: (body_statement) @body)
+  name: (_) @name)
 
-(module) @name
+(class
+  (constant) @name)
 `,
 
 		"find_variables": `
 (assignment
-  left: (identifier) @name
-  right: (_) @value)
+  left: (_) @name)
 `,
 
 		"find_interfaces": ``,
 
 		"find_calls": `
 (call
-  method: (identifier) @method_name
-  arguments: (argument_list) @arguments)
+  method: (_) @method_name)
 `,
 
 		"find_imports": ``,

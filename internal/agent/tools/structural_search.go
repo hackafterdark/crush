@@ -117,8 +117,9 @@ func findFiles(workingDir, path, include string, lang string) ([]string, error) 
 		extensions = []string{".sh"}
 	case "hcl":
 		extensions = []string{".hcl"}
-	case "ruby":
-		extensions = []string{".rb"}
+	// case "ruby": — Ruby not supported (tree-sitter-ruby v0.23.1 misparses class/method nodes)
+	// case "ruby":
+	// 	extensions = []string{".rb"}
 	case "json":
 		extensions = []string{".json"}
 	case "html":

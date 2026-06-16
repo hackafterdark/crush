@@ -21,7 +21,7 @@ import (
 	lang_json "github.com/charmbracelet/crush/internal/agent/parser/json"
 	lang_php "github.com/charmbracelet/crush/internal/agent/parser/php"
 	lang_python "github.com/charmbracelet/crush/internal/agent/parser/python"
-	lang_ruby "github.com/charmbracelet/crush/internal/agent/parser/ruby"
+	// lang_ruby "github.com/charmbracelet/crush/internal/agent/parser/ruby"
 	lang_rust "github.com/charmbracelet/crush/internal/agent/parser/rust"
 	lang_scala "github.com/charmbracelet/crush/internal/agent/parser/scala"
 	lang_toml "github.com/charmbracelet/crush/internal/agent/parser/toml"
@@ -99,7 +99,7 @@ func SupportedLanguages() []string {
 		"php",
 		"rust",
 		"sql",
-		"ruby",
+		// "ruby" — Ruby not supported (tree-sitter-ruby v0.23.1 misparses class/method nodes)
 		"typescript",
 	}
 }
@@ -132,8 +132,9 @@ func GetLanguage(name string) *sitter.Language {
 		return lang_go.GetLanguage() // SQL not yet vendored — falls back to Go
 	case "rust":
 		return lang_rust.GetLanguage()
-	case "ruby":
-		return lang_ruby.GetLanguage()
+	// case "ruby": — Ruby not supported (tree-sitter-ruby v0.23.1 misparses class/method nodes)
+	// case "ruby":
+	// 	return lang_ruby.GetLanguage()
 	case "json":
 		return lang_json.GetLanguage()
 	case "html":
@@ -163,8 +164,8 @@ func DetectLanguage(filePath string) string {
 		return "bash"
 	case ".hcl":
 		return "hcl"
-	case ".rb":
-		return "ruby"
+	// case ".rb": — Ruby not supported (tree-sitter-ruby v0.23.1 misparses class/method nodes)
+	// 	return "ruby"
 	case ".json":
 		return "json"
 	case ".html":
