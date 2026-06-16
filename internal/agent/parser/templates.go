@@ -606,29 +606,28 @@ var Templates = map[string]map[string]string{
 	"hcl": {
 		"find_functions": `
 (attribute
-  name: (identifier) @name
-  value: (expression) @body)
+  (_) @name
+  (_) @body)
 `,
 
 		"find_structs": `
 (block
-  type: (identifier) @name
-  labels: (block_label) @labels
-  body: (body) @body)
+  (_) @name
+  (_) @body)
 `,
 
 		"find_variables": `
 (attribute
-  name: (identifier) @name
-  value: (expression) @value)
+  (_) @name
+  (_) @value)
 `,
 
 		"find_interfaces": ``,
 
 		"find_calls": `
 (function_call
-  function_name: (identifier) @function_name
-  arguments: (arguments) @arguments)
+  (_) @function_name
+  (_) @arguments)
 `,
 
 		"find_imports": ``,

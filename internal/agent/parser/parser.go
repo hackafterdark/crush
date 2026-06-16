@@ -164,6 +164,8 @@ func DetectLanguage(filePath string) string {
 		return "bash"
 	case ".hcl":
 		return "hcl"
+	case ".tf":
+		return "hcl"
 	// case ".rb": — Ruby not supported (tree-sitter-ruby v0.23.1 misparses class/method nodes)
 	// 	return "ruby"
 	case ".json":
