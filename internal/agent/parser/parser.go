@@ -3,6 +3,7 @@ package parser
 import (
 	"log/slog"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -221,7 +222,10 @@ func Query(root *sitter.Node, code []byte, lang, id string) ([]Match, error) {
 	language := root.Language()
 	query, queryErr := sitter.NewQuery(language, querySExpr)
 	if queryErr != nil {
-		return nil, queryErr
+		val := reflect.ValueOf(queryErr)
+		if val.Kind() != reflect.Ptr || !val.IsNil() {
+			return nil, queryErr
+		}
 	}
 	defer query.Close()
 

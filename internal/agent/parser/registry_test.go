@@ -1,11 +1,15 @@
 package parser
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
+	lang_typescript "github.com/charmbracelet/crush/internal/agent/parser/typescript"
 )
 
 func TestRegistryDefaults(t *testing.T) {
@@ -102,25 +106,31 @@ guidance: "Custom guidance"
 	}
 }
 
-func TestPrintTSAST(t *testing.T) {
-	code, err := os.ReadFile("../../../examples/structural_search/example.ts")
-	if err != nil {
-		t.Fatal(err)
+func formatNode(node *sitter.Node, code []byte, indent string) string {
+	res := ""
+	if node.IsNamed() {
+		res += fmt.Sprintf("%s%s [%d-%d] -> %q\n", indent, node.Kind(), node.StartByte(), node.EndByte(), node.Utf8Text(code))
 	}
-	root := Parse(code, "typescript")
-	t.Logf("Root type: %s", root.Type())
-	
-	// Let's print children of root.
-	for i := uint(0); i < root.ChildCount(); i++ {
-		child := root.Child(i)
-		t.Logf("Child %d: %s (is_named: %v)", i, child.Type(), child.IsNamed())
+	for i := uint(0); i < node.ChildCount(); i++ {
+		res += formatNode(node.Child(i), code, indent+"  ")
 	}
+	return res
+}
 
-	// Try compiling typescript query.
-	sexpr := `(function_declaration name: (identifier) @name)`
-	q, err := sitter.NewQuery(root.Language(), sexpr)
-	if err != nil {
-		t.Fatalf("Query compilation failed: %v", err)
+func TestFindTSFunctions(t *testing.T) {
+	parser := sitter.NewParser()
+	lang := lang_typescript.GetLanguage()
+	parser.SetLanguage(lang)
+
+	code := []byte("const x = `hello`;")
+	tree := parser.ParseCtx(context.Background(), code, nil)
+	if tree == nil {
+		t.Fatal("expected non-nil tree")
 	}
-	q.Close()
+	defer tree.Close()
+
+	ast := formatNode(tree.RootNode(), code, "")
+	if strings.Contains(ast, "ERROR") {
+		t.Errorf("AST contains ERROR node:\n%s", ast)
+	}
 }
