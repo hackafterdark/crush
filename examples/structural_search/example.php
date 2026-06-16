@@ -1,50 +1,110 @@
-package main
+<?php
 
-import (
-	"fmt"
-	"os"
-)
+/**
+ * Config holds application configuration.
+ */
+class Config {
+    public string $host;
+    public int $port;
+    public bool $debug;
 
-// Config holds the application configuration.
-type Config struct {
-	Host string
-	Port int
+    public function __construct(string $host, int $port, bool $debug) {
+        $this->host = $host;
+        $this->port = $port;
+        $this->debug = $debug;
+    }
+
+    /**
+     * Get host.
+     */
+    public function getHost(): string {
+        return $this->host;
+    }
+
+    /**
+     * Get port.
+     */
+    public function getPort(): int {
+        return $this->port;
+    }
 }
 
-// NewConfig creates a new Config with default values.
-func NewConfig() *Config {
-	return &Config{
-		Host: "localhost",
-		Port: 8080,
-	}
+/**
+ * Person represents a person.
+ */
+class Person {
+    public string $name;
+    public int $age;
+
+    public function __construct(string $name, int $age) {
+        $this->name = $name;
+        $this->age = $age;
+    }
+
+    /**
+     * Greet the person.
+     */
+    public function greet(): string {
+        return "Hello, I am {$this->name}";
+    }
 }
 
-// Person represents a person.
-type Person struct {
-	Name string
-	Age  int
+/**
+ * PersonService manages persons.
+ */
+class PersonService {
+    /**
+     * @var Person[]
+     */
+    private array $persons = [];
+
+    /**
+     * Add a person.
+     */
+    public function addPerson(Person $person): void {
+        $this->persons[] = $person;
+    }
+
+    /**
+     * Get all persons.
+     * @return Person[]
+     */
+    public function getAllPersons(): array {
+        return $this->persons;
+    }
+
+    /**
+     * Get person count.
+     */
+    public function getPersonCount(): int {
+        return count($this->persons);
+    }
 }
 
-// Print prints the person's details.
-func (p *Person) Print() {
-	fmt.Printf("Name: %s, Age: %d\n", p.Name, p.Age)
+/**
+ * Create a config with defaults.
+ */
+function createConfig(): Config {
+    return new Config("localhost", 3000, false);
 }
 
-// Greet returns a greeting string.
-func Greet(name string) string {
-	return fmt.Sprintf("Hello, %s!", name)
+/**
+ * Greet a person.
+ */
+function greetPerson(Person $person): string {
+    return $person->greet() . "!";
 }
 
-func main() {
-	cfg := NewConfig()
-	fmt.Println(cfg.Host)
+// Main execution.
+$config = createConfig();
+echo "Starting at {$config->getHost()}:{$config->getPort()}\n";
 
-	person := Person{Name: "Alice", Age: 30}
-	person.Print()
+$service = new PersonService();
+$service->addPerson(new Person("Alice", 30));
+$service->addPerson(new Person("Bob", 25));
 
-	if os.Getenv("DEBUG") != "" {
-		fmt.Println("Debug mode enabled")
-	}
-
-	fmt.Println(Greet("Bob"))
+foreach ($service->getAllPersons() as $person) {
+    echo greetPerson($person) . "\n";
 }
+
+echo "Total persons: " . $service->getPersonCount() . "\n";

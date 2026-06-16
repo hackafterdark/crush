@@ -470,22 +470,20 @@ var Templates = map[string]map[string]string{
 		"find_functions": `
 (function_definition
   name: (name) @name
-  parameters: (parameters) @parameters
-  body: (declaration_list) @body)
+  body: (compound_statement) @body)
 
 (method_declaration
   name: (name) @name
-  parameters: (parameters) @parameters
-  body: (declaration_list) @body)
+  body: (compound_statement) @body)
+
+(anonymous_function
+  parameters: (formal_parameters) @parameters
+  body: (compound_statement) @body)
 `,
 
 		"find_structs": `
 (class_declaration
-  name: (name) @name
-  body: (declaration_list) @class_body)
-
-(class_declaration
-  abstract: (abstract) @name
+  name: (_) @name
   body: (declaration_list) @class_body)
 `,
 
@@ -493,8 +491,13 @@ var Templates = map[string]map[string]string{
 (variable_name) @name
 
 (property_declaration
-  name: (variable_name) @name
-  default_value: (_) @value)
+  (property_element
+    name: (variable_name) @name
+    default_value: (_) @value))
+
+(property_declaration
+  (property_element
+    name: (variable_name) @name))
 
 (assignment_expression
   left: (variable_name) @name
@@ -509,15 +512,17 @@ var Templates = map[string]map[string]string{
 
 		"find_calls": `
 (function_call_expression
-  name: (name) @function_name
+  function: (_) @function_name
   arguments: (arguments) @arguments)
 
 (member_call_expression
-  name: (name) @method_name
+  object: (_)
+  (name) @method_name
   arguments: (arguments) @arguments)
 
 (scoped_call_expression
-  name: (name) @method_name
+  scope: (_)
+  (name) @method_name
   arguments: (arguments) @arguments)
 `,
 
