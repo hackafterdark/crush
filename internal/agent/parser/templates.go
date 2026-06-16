@@ -881,42 +881,62 @@ var Templates = map[string]map[string]string{
 	"scala": {
 		"find_functions": `
 (function_definition
-  name: (identifier) @name
-  parameters: (formal_parameter_list) @parameters
-  body: (block) @body)
+  name: (_) @name)
+
+(function_definition
+  name: (_) @name
+  parameters: (_) @parameters)
+
+(function_definition
+  name: (_) @name
+  parameters: (_) @parameters
+  body: (_) @body)
+
+(function_declaration
+  name: (_) @name)
 `,
 
 		"find_structs": `
 (class_definition
-  name: (identifier) @name
-  body: (class_body) @body)
+  name: (_) @name
+  body: (_) @body)
 
 (object_definition
-  name: (identifier) @name
-  body: (template_body) @body)
+  name: (_) @name
+  body: (_) @body)
 `,
 
 		"find_variables": `
-(definition
-  pattern: (identifier) @name
+(val_definition
+  pattern: (_) @name
   value: (_) @value)
+
+(val_definition
+  pattern: (_) @name)
+
+(var_definition
+  pattern: (_) @name
+  value: (_) @value)
+
+(var_definition
+  pattern: (_) @name)
 `,
 
 		"find_interfaces": `
 (trait_definition
-  name: (identifier) @name
-  body: (template_body) @body)
+  name: (_) @name
+  body: (_) @body)
 `,
 
 		"find_calls": `
 (call_expression
-  function: (identifier) @function_name
-  arguments: (argument_list) @arguments)
+  function: (_) @function_name
+  arguments: (_))
 `,
 
 		"find_imports": `
 (import_declaration
-  (scoped_identifier) @import_path)
+  path: (_) @import_path)
 `,
 
 		"find_comments": `
