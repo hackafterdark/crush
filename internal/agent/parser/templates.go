@@ -310,13 +310,12 @@ var Templates = map[string]map[string]string{
 
 		"find_calls": `
 (call
-  function: (identifier) @function_name
-  arguments: (arguments) @arguments)
+  function: (_) @function_name
+  arguments: (_))
 
 (call
-  function: (attribute
-    attribute: (identifier) @method_name)
-  arguments: (arguments) @arguments)
+  function: (_) @method_name
+  arguments: (_))
 `,
 
 		"find_imports": `
