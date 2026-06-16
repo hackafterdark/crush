@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	sitter "github.com/tree-sitter/go-tree-sitter"
+	lang_javascript "github.com/charmbracelet/crush/internal/agent/parser/javascript"
 	lang_typescript "github.com/charmbracelet/crush/internal/agent/parser/typescript"
 )
 
@@ -117,9 +117,22 @@ func formatNode(node *sitter.Node, code []byte, indent string) string {
 	return res
 }
 
+func hasErrorNode(node *sitter.Node) bool {
+	if node.Kind() == "ERROR" {
+		return true
+	}
+	for i := uint(0); i < node.ChildCount(); i++ {
+		if hasErrorNode(node.Child(i)) {
+			return true
+		}
+	}
+	return false
+}
+
 func TestFindTSFunctions(t *testing.T) {
 	parser := sitter.NewParser()
 	lang := lang_typescript.GetLanguage()
+	t.Logf("TS ABI Version: %d", lang.AbiVersion())
 	parser.SetLanguage(lang)
 
 	code := []byte("const x = `hello`;")
@@ -129,8 +142,64 @@ func TestFindTSFunctions(t *testing.T) {
 	}
 	defer tree.Close()
 
-	ast := formatNode(tree.RootNode(), code, "")
-	if strings.Contains(ast, "ERROR") {
+	if hasErrorNode(tree.RootNode()) {
+		ast := formatNode(tree.RootNode(), code, "")
 		t.Errorf("AST contains ERROR node:\n%s", ast)
 	}
 }
+
+func TestFindJSFunctions(t *testing.T) {
+	parser := sitter.NewParser()
+	lang := lang_javascript.GetLanguage()
+	parser.SetLanguage(lang)
+
+	code, err := os.ReadFile("../../../examples/structural_search/example.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tree := parser.ParseCtx(context.Background(), code, nil)
+	if tree == nil {
+		t.Fatal("expected non-nil tree")
+	}
+	defer tree.Close()
+
+	if hasErrorNode(tree.RootNode()) {
+		ast := formatNode(tree.RootNode(), code, "")
+		t.Errorf("AST contains ERROR node:\n%s", ast)
+	}
+
+	// Verify structural_search query 'find_structs' execution.
+	structMatches, err := Query(tree.RootNode(), code, "javascript", "find_structs")
+	if err != nil {
+		t.Fatalf("find_structs query failed: %v", err)
+	}
+	if len(structMatches) != 6 {
+		t.Errorf("expected 6 matches for find_structs (representing class methods), got %d", len(structMatches))
+	}
+
+	// Verify structural_search query 'find_functions' execution.
+	funcMatches, err := Query(tree.RootNode(), code, "javascript", "find_functions")
+	if err != nil {
+		t.Fatalf("find_functions query failed: %v", err)
+	}
+	if len(funcMatches) != 2 {
+		t.Errorf("expected 2 matches for find_functions (representing standalone functions), got %d", len(funcMatches))
+	}
+}
+
+func TestJSQueriesCompile(t *testing.T) {
+	lang := lang_javascript.GetLanguage()
+	for name, pattern := range Templates["javascript"] {
+		if pattern == "" {
+			continue
+		}
+		t.Run(name, func(t *testing.T) {
+			q, err := sitter.NewQuery(lang, pattern)
+			if err != nil {
+				t.Fatalf("Failed to compile query %s: %v\nPattern:\n%s", name, err, pattern)
+			}
+			q.Close()
+		})
+	}
+}
+

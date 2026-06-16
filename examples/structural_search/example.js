@@ -108,6 +108,36 @@ function greet(person) {
   return `Hello, ${person.name}! You are ${person.age} years old.`;
 }
 
+/**
+ * Fetch persons from a remote source.
+ * @returns {Promise<Person[]>}
+ */
+async function fetchPersons() {
+  try {
+    const response = await fetch("/api/persons");
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    Logger.error(`Failed to fetch persons: ${error.message}`);
+    return [];
+  }
+}
+
+/**
+ * Load persons with error handling.
+ * @returns {Promise<void>}
+ */
+async function loadPersons() {
+  try {
+    const persons = await fetchPersons();
+    for (const p of persons) {
+      service.addPerson(p.name, p.age);
+    }
+  } catch (err) {
+    Logger.error(`Load failed: ${err.message}`);
+  }
+}
+
 // Main execution.
 const config = createConfig();
 Logger.info(`Starting application at ${config.host}:${config.port}`);

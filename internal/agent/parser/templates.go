@@ -208,7 +208,7 @@ var Templates = map[string]map[string]string{
   name: (identifier) @name
   body: (class_body
     (field_definition
-      name: (property_identifier) @field_name
+      property: (property_identifier) @field_name
       value: (_) @field_value)))
 
 (class
