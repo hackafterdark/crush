@@ -39,6 +39,14 @@ impl Person {
     fn greet(&self) -> String {
         format!("Hello, I'm {} and I'm {} years old.", self.name, self.age)
     }
+
+    /// Check if the person is an adult, returning an error if they are minor.
+    fn check_adult(&self) -> Result<(), String> {
+        if self.age < 18 {
+            return Err("Too young".to_string());
+        }
+        Ok(())
+    }
 }
 
 /// Logger provides logging functionality.

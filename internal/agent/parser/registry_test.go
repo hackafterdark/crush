@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	sitter "github.com/tree-sitter/go-tree-sitter"
 	lang_javascript "github.com/charmbracelet/crush/internal/agent/parser/javascript"
 	lang_typescript "github.com/charmbracelet/crush/internal/agent/parser/typescript"
+	sitter "github.com/tree-sitter/go-tree-sitter"
 )
 
 func TestRegistryDefaults(t *testing.T) {
@@ -418,4 +418,3 @@ func isVendoredLanguage(langName string) bool {
 		return false
 	}
 }
-
