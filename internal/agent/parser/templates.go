@@ -54,10 +54,12 @@ var Templates = map[string]map[string]string{
 (type_spec
   name: (type_identifier) @name
   type: (interface_type
-    (interface_type_elements
-      (interface_type_element
-        name: (field_identifier) @method_name
-        type: (_) @method_type))) @interface_body)
+    (method_elem
+      (field_identifier) @method_name)))
+
+(type_spec
+  name: (type_identifier) @name
+  type: (interface_type) @interface_body)
 `,
 
 		"find_calls": `
@@ -72,10 +74,9 @@ var Templates = map[string]map[string]string{
 `,
 
 		"find_imports": `
-(import_declaration
-  (import_spec
-    name: (_) @package_name
-    path: (interpreted_string_literal) @import_path))
+(import_spec
+  name: (package_identifier)? @package_name
+  path: (interpreted_string_literal) @import_path)
 `,
 
 		"find_comments": `
@@ -425,7 +426,7 @@ var Templates = map[string]map[string]string{
 
 		"find_interfaces": `
 (trait_item
-  name: (identifier) @name)
+  (type_identifier) @name)
 `,
 
 		"find_calls": `
@@ -435,12 +436,7 @@ var Templates = map[string]map[string]string{
 
 		"find_imports": `
 (use_declaration
-  name: (scoped_identifier
-    path: (_) @package_name
-    name: (_) @import_name))
-
-(use_declaration
-  name: (identifier) @import_name)
+  (_) @import_path)
 `,
 
 		"find_comments": `
@@ -512,16 +508,13 @@ var Templates = map[string]map[string]string{
 `,
 
 		"find_imports": `
-(namespace_use_declaration
-  name: (qualified_name) @import_path
-  alias: (name) @import_name)
-
-(namespace_use_declaration
-  name: (qualified_name) @import_path)
-
-(use_declaration
-  name: (qualified_name) @import_path
-  alias: (name) @import_name)
+(namespace_use_clause
+  .
+  [
+    (qualified_name)
+    (name)
+  ] @import_path
+  (name)? @import_alias)
 `,
 
 		"find_comments": `
@@ -760,14 +753,17 @@ var Templates = map[string]map[string]string{
 
 		"find_structs": `
 (element
-  name: (tag_name) @name
-  children: (element_children) @body)
+  (start_tag
+    (tag_name) @name))
+
+(self_closing_tag
+  (tag_name) @name)
 `,
 
 		"find_variables": `
 (attribute
-  name: (attribute_name) @name
-  value: (attribute_value) @value)
+  (attribute_name) @name
+  (_) @value)
 `,
 
 		"find_interfaces": ``,
@@ -776,10 +772,17 @@ var Templates = map[string]map[string]string{
 
 		"find_imports": `
 (element
-  name: (tag_name) @import_path
   (start_tag
+    (tag_name) @tag_name
     (attribute
-      name: (attribute_name) @import_name)))
+      (attribute_name) @attr_name
+      (_) @import_path)))
+
+(self_closing_tag
+  (tag_name) @tag_name
+  (attribute
+    (attribute_name) @attr_name
+    (_) @import_path))
 `,
 
 		"find_comments": `
@@ -836,7 +839,7 @@ var Templates = map[string]map[string]string{
 
 		"find_imports": `
 (import_statement
-  (string) @import_path)
+  (string_value) @import_path)
 `,
 
 		"find_comments": `

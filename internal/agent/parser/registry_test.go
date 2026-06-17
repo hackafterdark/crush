@@ -148,6 +148,117 @@ func TestFindTSFunctions(t *testing.T) {
 	}
 }
 
+func TestFindGoImportsAndInterfaces(t *testing.T) {
+	parser := sitter.NewParser()
+	lang := GetLanguage("go")
+	parser.SetLanguage(lang)
+
+	// 1. Test imports
+	codeImports := []byte(`package main
+import (
+	"fmt"
+	l "log"
+)
+`)
+	treeImports := parser.ParseCtx(context.Background(), codeImports, nil)
+	if treeImports == nil {
+		t.Fatal("expected non-nil tree")
+	}
+	defer treeImports.Close()
+
+	importMatches, err := Query(treeImports.RootNode(), codeImports, "go", "find_imports")
+	if err != nil {
+		t.Fatalf("find_imports failed: %v", err)
+	}
+	if len(importMatches) != 2 {
+		t.Errorf("expected 2 import matches, got %d", len(importMatches))
+	}
+
+	// 2. Test interfaces
+	codeInterfaces := []byte(`package main
+type Reader interface {
+	Read(p []byte) (n int, err error)
+	Close() error
+}
+`)
+	treeInterfaces := parser.ParseCtx(context.Background(), codeInterfaces, nil)
+	if treeInterfaces == nil {
+		t.Fatal("expected non-nil tree")
+	}
+	defer treeInterfaces.Close()
+
+	interfaceMatches, err := Query(treeInterfaces.RootNode(), codeInterfaces, "go", "find_interfaces")
+	if err != nil {
+		t.Fatalf("find_interfaces failed: %v", err)
+	}
+	if len(interfaceMatches) != 3 {
+		t.Errorf("expected 3 interface matches, got %d", len(interfaceMatches))
+	}
+}
+
+func TestFindRustImportsAndInterfaces(t *testing.T) {
+	parser := sitter.NewParser()
+	lang := GetLanguage("rust")
+	parser.SetLanguage(lang)
+
+	// Test imports
+	codeImports := []byte(`use std::io; use std::collections::HashMap;`)
+	treeImports := parser.ParseCtx(context.Background(), codeImports, nil)
+	if treeImports == nil {
+		t.Fatal("expected non-nil tree")
+	}
+	defer treeImports.Close()
+
+	importMatches, err := Query(treeImports.RootNode(), codeImports, "rust", "find_imports")
+	if err != nil {
+		t.Fatalf("find_imports failed: %v", err)
+	}
+	if len(importMatches) != 2 {
+		t.Errorf("expected 2 import matches, got %d", len(importMatches))
+	}
+
+	// Test interfaces (traits)
+	codeInterfaces := []byte(`trait Reader { fn read(&mut self) -> Result<usize>; }`)
+	treeInterfaces := parser.ParseCtx(context.Background(), codeInterfaces, nil)
+	if treeInterfaces == nil {
+		t.Fatal("expected non-nil tree")
+	}
+	defer treeInterfaces.Close()
+
+	interfaceMatches, err := Query(treeInterfaces.RootNode(), codeInterfaces, "rust", "find_interfaces")
+	if err != nil {
+		t.Fatalf("find_interfaces failed: %v", err)
+	}
+	if len(interfaceMatches) != 1 {
+		t.Errorf("expected 1 interface match, got %d", len(interfaceMatches))
+	}
+}
+
+func TestFindPHPImportsAndInterfaces(t *testing.T) {
+	parser := sitter.NewParser()
+	lang := GetLanguage("php")
+	parser.SetLanguage(lang)
+
+	// Test imports
+	codeImports := []byte(`<?php
+use App\Models\User;
+use App\Models\Post as MyPost;
+`)
+	treeImports := parser.ParseCtx(context.Background(), codeImports, nil)
+	if treeImports == nil {
+		t.Fatal("expected non-nil tree")
+	}
+	defer treeImports.Close()
+
+	importMatches, err := Query(treeImports.RootNode(), codeImports, "php", "find_imports")
+	if err != nil {
+		t.Fatalf("find_imports failed: %v", err)
+	}
+	if len(importMatches) != 2 {
+		t.Errorf("expected 2 import matches, got %d", len(importMatches))
+	}
+}
+
 func TestFindJSFunctions(t *testing.T) {
 	parser := sitter.NewParser()
 	lang := lang_javascript.GetLanguage()
@@ -219,19 +330,38 @@ func TestFindJSFunctions(t *testing.T) {
 	}
 }
 
-func TestJSQueriesCompile(t *testing.T) {
-	lang := lang_javascript.GetLanguage()
-	for name, pattern := range Templates["javascript"] {
-		if pattern == "" {
-			continue
-		}
-		t.Run(name, func(t *testing.T) {
-			q, err := sitter.NewQuery(lang, pattern)
-			if err != nil {
-				t.Fatalf("Failed to compile query %s: %v\nPattern:\n%s", name, err, pattern)
+func TestAllQueriesCompile(t *testing.T) {
+	for langName, templates := range Templates {
+		t.Run(langName, func(t *testing.T) {
+			if !isVendoredLanguage(langName) {
+				t.Skipf("Language %s is not natively supported/vendored in this repository", langName)
 			}
-			q.Close()
+			lang := GetLanguage(langName)
+			if lang == nil {
+				t.Skipf("Language %s not supported/loaded", langName)
+			}
+			for name, pattern := range templates {
+				if pattern == "" {
+					continue
+				}
+				t.Run(name, func(t *testing.T) {
+					q, err := sitter.NewQuery(lang, pattern)
+					if err != nil {
+						t.Fatalf("Failed to compile query %s for %s: %v\nPattern:\n%s", name, langName, err, pattern)
+					}
+					q.Close()
+				})
+			}
 		})
+	}
+}
+
+func isVendoredLanguage(langName string) bool {
+	switch langName {
+	case "go", "cpp", "c", "bash", "hcl", "csharp", "typescript", "javascript", "python", "php", "rust", "json", "html", "css", "scala":
+		return true
+	default:
+		return false
 	}
 }
 
