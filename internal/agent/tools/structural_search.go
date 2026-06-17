@@ -55,8 +55,10 @@ func structuralSearchDescription() string {
 
 // StructuralSearchParams are the parameters for the structural_search tool.
 type StructuralSearchParams struct {
+	// Action specifies what to do: "search" (default) or "list_templates".
+	Action string `json:"action,omitempty" description:"Action to perform: 'search' (default, searches files) or 'list_templates' (returns available templates for a language)."`
 	// TemplateName is the name of the pre-built query template to use.
-	TemplateName string `json:"template_name" description:"The name of the query template to use. Available: find_functions, find_structs, find_variables, find_interfaces, find_calls, find_imports, find_comments."`
+	TemplateName string `json:"template_name,omitempty" description:"The name of the query template to use. Available: find_functions, find_structs, find_variables, find_interfaces, find_calls, find_imports, find_comments."`
 	// Path is the directory to search in. Defaults to the current working directory.
 	Path string `json:"path,omitempty" description:"The directory to search in. Defaults to the current working directory."`
 	// Include is a file pattern to filter by (e.g., "*.go", "*.ts").
@@ -65,6 +67,12 @@ type StructuralSearchParams struct {
 	MaxResults int `json:"max_results,omitempty" description:"Maximum number of results to return (default: 100)."`
 	// Language is the programming language to search. If empty, auto-detected from file extensions.
 	Language string `json:"language,omitempty" description:"The programming language to search (e.g., 'go', 'typescript', 'javascript', 'python'). If empty, auto-detected from file extensions."`
+}
+
+// AvailableTemplateInfo describes one available template.
+type AvailableTemplateInfo struct {
+	ID          string `json:"id"`
+	Description string `json:"description"`
 }
 
 // StructuralSearchCapture represents a single capture within a match.
@@ -195,6 +203,15 @@ func findFiles(workingDir, path, include string, lang string) ([]string, error) 
 	return files, nil
 }
 
+func formatTemplateList(templates []AvailableTemplateInfo) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Available templates (%d):\n\n", len(templates)))
+	for _, t := range templates {
+		fmt.Fprintf(&sb, "  %s: %s\n", t.ID, t.Description)
+	}
+	return sb.String()
+}
+
 func formatResults(results []StructuralSearchMatch, maxResults int) string {
 	if len(results) == 0 {
 		return "No matches found"
@@ -229,6 +246,36 @@ func formatResults(results []StructuralSearchMatch, maxResults int) string {
 }
 
 func executeStructuralSearch(ctx context.Context, workingDir string, params StructuralSearchParams) (fantasy.ToolResponse, error) {
+	// Handle list_templates action: return available templates for a language.
+	if params.Action == "list_templates" {
+		lang := params.Language
+		if lang == "" {
+			lang = "go"
+		}
+		names := parser.TemplateNames(lang)
+		if names == nil {
+			names = []string{}
+		}
+		var templates []AvailableTemplateInfo
+		for _, name := range names {
+			if cap, ok := parser.GetCapability(lang, name); ok {
+				templates = append(templates, AvailableTemplateInfo{
+					ID:          cap.ID,
+					Description: cap.Description,
+				})
+			}
+		}
+		if len(templates) == 0 {
+			templates = []AvailableTemplateInfo{}
+		}
+		return fantasy.WithResponseMetadata(
+			fantasy.NewTextResponse(formatTemplateList(templates)),
+			structuralSearchResponse{
+				TotalMatches: len(templates),
+			},
+		), nil
+	}
+
 	searchPath := params.Path
 	if searchPath == "" {
 		searchPath = workingDir

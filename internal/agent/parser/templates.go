@@ -408,21 +408,18 @@ var Templates = map[string]map[string]string{
 		"find_structs": `
 (struct_item
   name: (type_identifier) @name
-  body: (_) @struct_body)
+  body: (field_declaration_list)? @body)
 `,
 
 		"find_variables": `
 (let_declaration
   pattern: (identifier) @name
-  value: (_) @value)
-
-(let_declaration
-  pattern: (identifier) @name)
+  value: (_)? @value)
 `,
 
 		"find_interfaces": `
 (trait_item
-  (type_identifier) @name)
+  name: (type_identifier) @name)
 `,
 
 		"find_calls": `
@@ -432,7 +429,7 @@ var Templates = map[string]map[string]string{
 
 		"find_imports": `
 (use_declaration
-  (_) @import_path)
+  argument: (_) @import_path)
 `,
 
 		"find_comments": `
