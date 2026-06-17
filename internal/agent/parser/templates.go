@@ -401,12 +401,8 @@ var Templates = map[string]map[string]string{
 		"find_functions": `
 (function_item
   name: (identifier) @name
-  parameters: (parameters) @parameters
-  body: (block) @body)
-
-(function_item
-  name: (identifier) @name
-  body: (block) @body)
+  parameters: (parameters)? @parameters
+  body: (block)? @body)
 `,
 
 		"find_structs": `

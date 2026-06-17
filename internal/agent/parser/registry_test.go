@@ -330,6 +330,60 @@ func TestFindJSFunctions(t *testing.T) {
 	}
 }
 
+func TestRustCustomQueries(t *testing.T) {
+	parser := sitter.NewParser()
+	lang := GetLanguage("rust")
+	parser.SetLanguage(lang)
+
+	code := []byte(`
+struct Point {
+    x: i32,
+    y: i32,
+}
+
+fn check() -> Result<(), String> {
+    if true {
+        return Err("error message".to_string());
+    }
+    Ok(())
+}
+`)
+
+	tree := parser.ParseCtx(context.Background(), code, nil)
+	if tree == nil {
+		t.Fatal("expected non-nil tree")
+	}
+	defer tree.Close()
+
+	// 1. Test find_struct_fields query
+	fieldsQuery := `
+(field_declaration
+  name: (field_identifier) @field_name
+  type: (_) @field_type)
+`
+	fieldMatches, err := Query(tree.RootNode(), code, "rust", fieldsQuery)
+	if err != nil {
+		t.Fatalf("find_struct_fields query failed: %v", err)
+	}
+	if len(fieldMatches) != 2 {
+		t.Errorf("expected 2 field matches, got %d", len(fieldMatches))
+	}
+
+	// 2. Test find_error_returns query
+	errQuery := `
+(call_expression
+  function: (identifier) @func_name (#eq? @func_name "Err")
+  arguments: (arguments (_) @err_value))
+`
+	errMatches, err := Query(tree.RootNode(), code, "rust", errQuery)
+	if err != nil {
+		t.Fatalf("find_error_returns query failed: %v", err)
+	}
+	if len(errMatches) != 1 {
+		t.Errorf("expected 1 error return match, got %d", len(errMatches))
+	}
+}
+
 func TestAllQueriesCompile(t *testing.T) {
 	for langName, templates := range Templates {
 		t.Run(langName, func(t *testing.T) {

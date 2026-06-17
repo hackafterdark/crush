@@ -1,4 +1,5 @@
-// Rust example for structural search testing.
+use std::io;
+use std::collections::HashMap;
 
 /// Config holds the application configuration.
 struct Config {
@@ -7,10 +8,22 @@ struct Config {
     debug: bool,
 }
 
+/// Printable trait for objects that can print themselves.
+trait Printable {
+    fn print(&self);
+}
+
 /// Person represents a person.
+#[derive(Clone)]
 struct Person {
     name: String,
     age: u32,
+}
+
+impl Printable for Person {
+    fn print(&self) {
+        println!("{}", self.greet());
+    }
 }
 
 impl Person {
