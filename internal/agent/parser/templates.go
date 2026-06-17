@@ -287,53 +287,37 @@ var Templates = map[string]map[string]string{
 `,
 
 		"find_variables": `
-(assignment
-  left: (identifier) @name
-  right: (_) @value)
+;; Local variables
+(assignment left: (identifier) @name)
 
-(assignment
-  left: (identifier) @name)
-
-(assignment
-  left: (pattern_list) @name
-  right: (_) @value)
-`,
-
-		"find_interfaces": `
+;; Class attributes (self.x = y)
+(expression_statement
+  (assignment
+    left: (attribute object: (identifier) @instance attribute: (identifier) @name)))
 `,
 
 		"find_calls": `
 (call
-  function: (_) @function_name
-  arguments: (_))
-
-(call
-  function: (_) @method_name
-  arguments: (_))
+  function: [
+    (identifier) @function_name
+    (attribute 
+      object: (_) 
+      attribute: (identifier) @function_name)
+  ])
 `,
 
 		"find_imports": `
-(import_statement
-  (aliased_import
-    name: (dotted_name) @package_name
-    alias: (identifier) @import_alias))
-
-(import_statement
-  (dotted_name) @package_name)
-
-(import_from_statement
-  module_name: (dotted_name) @import_path
-  (aliased_import
-    name: (dotted_name) @import_name
-    alias: (identifier) @import_alias))
-
-(import_from_statement
-  module_name: (dotted_name) @import_path
-  (dotted_name) @import_name)
+(import_statement (dotted_name) @name)
+(import_from_statement module_name: (dotted_name) @module)
 `,
 
 		"find_comments": `
 (comment) @comment
+
+;; Capture docstrings as comments
+(module . (expression_statement (string) @docstring))
+(function_definition . (block (expression_statement (string) @docstring)))
+(class_definition . (block (expression_statement (string) @docstring)))
 `,
 	},
 
