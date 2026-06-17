@@ -43,13 +43,33 @@ var structuralSearchDescriptionTpl = template.Must(
 // 		Parse(string(structuralSearchDescriptionTmpl)),
 // )
 
+// LanguageTemplates holds the template names for a single language.
+type LanguageTemplates struct {
+	Language  string
+	Templates []string
+}
+
 type structuralSearchDescriptionData struct {
-	AvailableTemplates []string
+	LanguageTemplates []LanguageTemplates
 }
 
 func structuralSearchDescription() string {
+	var langTemplates []LanguageTemplates
+	seen := make(map[string]bool)
+	for _, cap := range parser.GetCapabilities() {
+		if !seen[cap.Language] {
+			seen[cap.Language] = true
+			names := parser.TemplateNames(cap.Language)
+			if len(names) > 0 {
+				langTemplates = append(langTemplates, LanguageTemplates{
+					Language:  cap.Language,
+					Templates: names,
+				})
+			}
+		}
+	}
 	return renderTemplate(structuralSearchDescriptionTpl, structuralSearchDescriptionData{
-		AvailableTemplates: parser.TemplateNames("go"),
+		LanguageTemplates: langTemplates,
 	})
 }
 
@@ -58,7 +78,7 @@ type StructuralSearchParams struct {
 	// Action specifies what to do: "search" (default) or "list_templates".
 	Action string `json:"action,omitempty" description:"Action to perform: 'search' (default, searches files) or 'list_templates' (returns available templates for a language)."`
 	// TemplateName is the name of the pre-built query template to use.
-	TemplateName string `json:"template_name,omitempty" description:"The name of the query template to use. Available: find_functions, find_structs, find_variables, find_interfaces, find_calls, find_imports, find_comments."`
+	TemplateName string `json:"template_name,omitempty" description:"The name of the query template to use. Use action 'list_templates' with a language to discover available templates. Templates are language-specific."`
 	// Path is the directory to search in. Defaults to the current working directory.
 	Path string `json:"path,omitempty" description:"The directory to search in. Defaults to the current working directory."`
 	// Include is a file pattern to filter by (e.g., "*.go", "*.ts").

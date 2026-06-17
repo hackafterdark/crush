@@ -344,6 +344,11 @@ var Templates = map[string]map[string]string{
     (identifier) @name)
   (function_body) @body)
 `,
+		"find_calls": `
+(invocation
+  (object_reference
+    (identifier) @function_name))
+`,
 
 		"find_structs": `
 (create_table
@@ -389,25 +394,11 @@ var Templates = map[string]map[string]string{
 `,
 
 		"find_select_all": `
-(statement
-  (select
-    (select_expression
-      (term
-        (all_fields)))))
+(select
+  (select_expression
+    (term
+      (all_fields) @all)))
 `,
-
-		"find_variables": `
-`,
-
-		"find_interfaces": `
-`,
-
-		"find_calls": `
-`,
-
-		"find_imports": `
-`,
-
 		"find_comments": `
 (comment) @comment
 `,
