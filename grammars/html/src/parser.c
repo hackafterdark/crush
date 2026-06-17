@@ -4,7 +4,7 @@
 #pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 #endif
 
-#define LANGUAGE_VERSION 14
+#define LANGUAGE_VERSION 15
 #define STATE_COUNT 94
 #define LARGE_STATE_COUNT 2
 #define SYMBOL_COUNT 41
@@ -146,7 +146,7 @@ static const TSSymbol ts_symbol_map[] = {
   [aux_sym_start_tag_repeat1] = aux_sym_start_tag_repeat1,
 };
 
-static const TSSymbolMetadata ts_symbol_metadata_[] = {
+static const TSSymbolMetadata ts_symbol_metadata[] = {
   [ts_builtin_sym_end] = {
     .visible = false,
     .named = true,
@@ -313,15 +313,15 @@ static const TSSymbolMetadata ts_symbol_metadata_[] = {
   },
 };
 
-static const TSSymbol ts_alias_sequences_[PRODUCTION_ID_COUNT][MAX_ALIAS_SEQUENCE_LENGTH] = {
+static const TSSymbol ts_alias_sequences[PRODUCTION_ID_COUNT][MAX_ALIAS_SEQUENCE_LENGTH] = {
   [0] = {0},
 };
 
-static const uint16_t ts_non_terminal_alias_map_[] = {
+static const uint16_t ts_non_terminal_alias_map[] = {
   0,
 };
 
-static const TSStateId ts_primary_state_ids_[STATE_COUNT] = {
+static const TSStateId ts_primary_state_ids[STATE_COUNT] = {
   [0] = 0,
   [1] = 1,
   [2] = 2,
@@ -1013,7 +1013,7 @@ static const uint16_t ts_parse_table[LARGE_STATE_COUNT][SYMBOL_COUNT] = {
   },
 };
 
-static const uint16_t ts_small_parse_table_[] = {
+static const uint16_t ts_small_parse_table[] = {
   [0] = 12,
     ACTIONS(3), 1,
       sym_comment,
@@ -2272,14 +2272,14 @@ TS_PUBLIC const TSLanguage *tree_sitter_html(void) {
     .field_count = FIELD_COUNT,
     .max_alias_sequence_length = MAX_ALIAS_SEQUENCE_LENGTH,
     .parse_table = &ts_parse_table[0][0],
-    .small_parse_table = ts_small_parse_table_,
+    .small_parse_table = ts_small_parse_table,
     .small_parse_table_map = ts_small_parse_table_map,
     .parse_actions = ts_parse_actions,
     .symbol_names = ts_symbol_names,
-    .symbol_metadata = ts_symbol_metadata_,
+    .symbol_metadata = ts_symbol_metadata,
     .public_symbol_map = ts_symbol_map,
-    .alias_map = ts_non_terminal_alias_map_,
-    .alias_sequences = &ts_alias_sequences_[0][0],
+    .alias_map = ts_non_terminal_alias_map,
+    .alias_sequences = &ts_alias_sequences[0][0],
     .lex_modes = ts_lex_modes,
     .lex_fn = ts_lex,
     .external_scanner = {
@@ -2291,10 +2291,11 @@ TS_PUBLIC const TSLanguage *tree_sitter_html(void) {
       tree_sitter_html_external_scanner_serialize,
       tree_sitter_html_external_scanner_deserialize,
     },
-    .primary_state_ids = ts_primary_state_ids_,
+    .primary_state_ids = ts_primary_state_ids,
   };
   return &language;
 }
 #ifdef __cplusplus
 }
 #endif
+

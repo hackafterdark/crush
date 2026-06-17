@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"strings"
+
 	lang_javascript "github.com/charmbracelet/crush/internal/agent/parser/javascript"
 	lang_typescript "github.com/charmbracelet/crush/internal/agent/parser/typescript"
 	sitter "github.com/tree-sitter/go-tree-sitter"
@@ -381,6 +383,79 @@ fn check() -> Result<(), String> {
 	}
 	if len(errMatches) != 1 {
 		t.Errorf("expected 1 error return match, got %d", len(errMatches))
+	}
+}
+
+func TestFindHTMLTemplates(t *testing.T) {
+	parser := sitter.NewParser()
+	lang := GetLanguage("html")
+	parser.SetLanguage(lang)
+
+	// Since we are running in the package directory, example.html is in ../../../examples/structural_search/example.html
+	path := filepath.Join("..", "..", "..", "examples", "structural_search", "example.html")
+	code, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read example.html: %v", err)
+	}
+
+	tree := parser.ParseCtx(context.Background(), code, nil)
+	if tree == nil {
+		t.Fatal("expected non-nil tree")
+	}
+	defer tree.Close()
+
+	var lines []string
+	var printNode func(*sitter.Node, int, string)
+	printNode = func(n *sitter.Node, depth int, indent string) {
+		if depth > 4 || len(lines) > 100 {
+			return
+		}
+		lines = append(lines, fmt.Sprintf("%s%s (%d-%d): %q", indent, n.Kind(), n.StartByte(), n.EndByte(), n.Utf8Text(code)))
+		for i := uint(0); i < n.ChildCount(); i++ {
+			printNode(n.Child(i), depth+1, indent+"  ")
+		}
+	}
+	printNode(tree.RootNode(), 0, "")
+	t.Logf("HTML AST DUMP:\n%s", strings.Join(lines, "\n"))
+
+	// 1. Test find_structs (should capture element / self_closing_tag)
+	structsQuery := Templates["html"]["find_structs"]
+	structMatches, err := Query(tree.RootNode(), code, "html", structsQuery)
+	if err != nil {
+		t.Fatalf("find_structs query failed: %v", err)
+	}
+	if len(structMatches) == 0 {
+		t.Errorf("expected at least some structs/elements, got 0")
+	}
+
+	// 2. Test find_variables (should capture attributes)
+	varsQuery := Templates["html"]["find_variables"]
+	varMatches, err := Query(tree.RootNode(), code, "html", varsQuery)
+	if err != nil {
+		t.Fatalf("find_variables query failed: %v", err)
+	}
+	if len(varMatches) == 0 {
+		t.Errorf("expected at least some attributes/variables, got 0")
+	}
+
+	// 3. Test find_imports (should capture links / scripts)
+	importsQuery := Templates["html"]["find_imports"]
+	importMatches, err := Query(tree.RootNode(), code, "html", importsQuery)
+	if err != nil {
+		t.Fatalf("find_imports query failed: %v", err)
+	}
+	if len(importMatches) == 0 {
+		t.Errorf("expected at least some imports/links/scripts, got 0")
+	}
+
+	// 4. Test find_comments (should capture comments)
+	commentsQuery := Templates["html"]["find_comments"]
+	commentMatches, err := Query(tree.RootNode(), code, "html", commentsQuery)
+	if err != nil {
+		t.Fatalf("find_comments query failed: %v", err)
+	}
+	if len(commentMatches) == 0 {
+		t.Errorf("expected at least some comments, got 0")
 	}
 }
 

@@ -21,3 +21,6 @@ import (
 func GetLanguage() *sitter.Language {
 	return sitter.NewLanguage(unsafe.Pointer(C.tree_sitter_html()))
 }
+
+// Force rebuild 2.
+
