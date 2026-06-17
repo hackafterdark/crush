@@ -26,6 +26,7 @@ import (
 	// lang_ruby "github.com/charmbracelet/crush/internal/agent/parser/ruby"
 	lang_rust "github.com/charmbracelet/crush/internal/agent/parser/rust"
 	lang_scala "github.com/charmbracelet/crush/internal/agent/parser/scala"
+	lang_sql "github.com/charmbracelet/crush/internal/agent/parser/sql"
 	// lang_toml "github.com/charmbracelet/crush/internal/agent/parser/toml"
 	lang_typescript "github.com/charmbracelet/crush/internal/agent/parser/typescript"
 
@@ -132,7 +133,7 @@ func GetLanguage(name string) *sitter.Language {
 	case "php":
 		return lang_php.GetLanguage()
 	case "sql":
-		return lang_go.GetLanguage() // SQL not yet vendored — falls back to Go
+		return lang_sql.GetLanguage()
 	case "rust":
 		return lang_rust.GetLanguage()
 	// case "ruby": — Ruby not supported (tree-sitter-ruby v0.23.1 misparses class/method nodes)

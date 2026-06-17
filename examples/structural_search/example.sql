@@ -98,5 +98,7 @@ INSERT INTO comments (post_id, user_id, body) VALUES
 UPDATE posts SET status = 'published', published_at = CURRENT_TIMESTAMP
 WHERE id = 1;
 
--- Delete draft posts older than a year.
 DELETE FROM posts WHERE status = 'draft' AND created_at < '2024-01-01';
+
+-- Select all users.
+SELECT * FROM users;

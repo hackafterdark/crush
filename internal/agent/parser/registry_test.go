@@ -459,6 +459,58 @@ func TestFindHTMLTemplates(t *testing.T) {
 	}
 }
 
+func TestFindSQLTemplates(t *testing.T) {
+	parser := sitter.NewParser()
+	lang := GetLanguage("sql")
+	parser.SetLanguage(lang)
+
+	path := filepath.Join("..", "..", "..", "examples", "structural_search", "example.sql")
+	code, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read example.sql: %v", err)
+	}
+
+	tree := parser.ParseCtx(context.Background(), code, nil)
+	if tree == nil {
+		t.Fatal("expected non-nil tree")
+	}
+	defer tree.Close()
+	if hasErrorNode(tree.RootNode()) {
+		ast := formatNode(tree.RootNode(), code, "")
+		t.Logf("SQL AST contains ERROR node:\n%s", ast)
+	}
+
+	// 1. Test find_structs (should capture create_table)
+	structsQuery := Templates["sql"]["find_structs"]
+	structMatches, err := Query(tree.RootNode(), code, "sql", structsQuery)
+	if err != nil {
+		t.Fatalf("find_structs query failed: %v", err)
+	}
+	if len(structMatches) == 0 {
+		t.Errorf("expected at least some structs/create_table, got 0")
+	}
+
+	// 2. Test find_select_tables
+	selectQuery := Templates["sql"]["find_select_tables"]
+	selectMatches, err := Query(tree.RootNode(), code, "sql", selectQuery)
+	if err != nil {
+		t.Fatalf("find_select_tables query failed: %v", err)
+	}
+	if len(selectMatches) == 0 {
+		t.Errorf("expected at least some select tables, got 0")
+	}
+
+	// 3. Test find_comments
+	commentsQuery := Templates["sql"]["find_comments"]
+	commentMatches, err := Query(tree.RootNode(), code, "sql", commentsQuery)
+	if err != nil {
+		t.Fatalf("find_comments query failed: %v", err)
+	}
+	if len(commentMatches) == 0 {
+		t.Errorf("expected at least some comments, got 0")
+	}
+}
+
 func TestAllQueriesCompile(t *testing.T) {
 	for langName, templates := range Templates {
 		t.Run(langName, func(t *testing.T) {
@@ -487,7 +539,7 @@ func TestAllQueriesCompile(t *testing.T) {
 
 func isVendoredLanguage(langName string) bool {
 	switch langName {
-	case "go", "cpp", "c", "bash", "hcl", "csharp", "typescript", "javascript", "python", "php", "rust", "json", "html", "css", "scala":
+	case "go", "cpp", "c", "bash", "hcl", "csharp", "typescript", "javascript", "python", "php", "rust", "json", "html", "css", "scala", "sql":
 		return true
 	default:
 		return false

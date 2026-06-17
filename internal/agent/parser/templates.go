@@ -340,44 +340,60 @@ var Templates = map[string]map[string]string{
 	"sql": {
 		"find_functions": `
 (create_function
-  name: (object_reference
-    name: (identifier) @name)
-  body: (function_body) @body)
+  (object_reference
+    (identifier) @name)
+  (function_body) @body)
 `,
 
 		"find_structs": `
 (create_table
-  name: (object_reference
-    name: (identifier) @name)
-  body: (column_definitions) @body)
+  (object_reference
+    (identifier) @name)
+  (column_definitions) @body)
 `,
 
 		"find_select_tables": `
-(select_statement
-  (from_clause
-    (table_name) @table_name))
+(statement
+  (select)
+  (from
+    (relation
+      (object_reference
+        (identifier) @table_name))))
+
+(statement
+  (select)
+  (from
+    (object_reference
+      (identifier) @table_name)))
 `,
 
 		"find_joins": `
-(join_clause
-  (table_name) @joined_table)
+(join
+  (relation
+    (object_reference
+      (identifier) @joined_table)))
 `,
 
 		"find_inserts": `
-(insert_statement
-  (table_name) @table_name)
+(insert
+  (object_reference
+    (identifier) @table_name))
 `,
 
 		"find_deletes": `
-(delete_statement
-  (from_clause
-    (table_name) @table_name))
+(statement
+  (delete)
+  (from
+    (object_reference
+      (identifier) @table_name)))
 `,
 
 		"find_select_all": `
-(select_statement
-  (select_list
-    (wildcard)))
+(statement
+  (select
+    (select_expression
+      (term
+        (all_fields)))))
 `,
 
 		"find_variables": `
