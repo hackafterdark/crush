@@ -23,4 +23,3 @@ func GetLanguage() *sitter.Language {
 }
 
 // Force rebuild 2.
-

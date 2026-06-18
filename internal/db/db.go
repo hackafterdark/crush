@@ -11,10 +11,10 @@ import (
 )
 
 type DBTX interface {
-	ExecContext(context.Context, string, ...any) (sql.Result, error)
+	ExecContext(context.Context, string, ...interface{}) (sql.Result, error)
 	PrepareContext(context.Context, string) (*sql.Stmt, error)
-	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
-	QueryRowContext(context.Context, string, ...any) *sql.Row
+	QueryContext(context.Context, string, ...interface{}) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...interface{}) *sql.Row
 }
 
 func New(db DBTX) *Queries {
@@ -30,11 +30,11 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.createFileStmt, err = db.PrepareContext(ctx, createFile); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateFile: %w", err)
 	}
-	if q.createMessageStmt, err = db.PrepareContext(ctx, createMessage); err != nil {
-		return nil, fmt.Errorf("error preparing query CreateMessage: %w", err)
-	}
 	if q.createGoalStmt, err = db.PrepareContext(ctx, createGoal); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateGoal: %w", err)
+	}
+	if q.createMessageStmt, err = db.PrepareContext(ctx, createMessage); err != nil {
+		return nil, fmt.Errorf("error preparing query CreateMessage: %w", err)
 	}
 	if q.createSessionStmt, err = db.PrepareContext(ctx, createSession); err != nil {
 		return nil, fmt.Errorf("error preparing query CreateSession: %w", err)
@@ -70,7 +70,7 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 		return nil, fmt.Errorf("error preparing query GetFileRead: %w", err)
 	}
 	if q.getGoalBySessionIDStmt, err = db.PrepareContext(ctx, getGoalBySessionID); err != nil {
-		return nil, fmt.Errorf("error preparing query GetGoalByScopeID: %w", err)
+		return nil, fmt.Errorf("error preparing query GetGoalBySessionID: %w", err)
 	}
 	if q.getHourDayHeatmapStmt, err = db.PrepareContext(ctx, getHourDayHeatmap); err != nil {
 		return nil, fmt.Errorf("error preparing query GetHourDayHeatmap: %w", err)
@@ -98,6 +98,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	}
 	if q.getUsageByDayOfWeekStmt, err = db.PrepareContext(ctx, getUsageByDayOfWeek); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUsageByDayOfWeek: %w", err)
+	}
+	if q.getUsageByDayRangeStmt, err = db.PrepareContext(ctx, getUsageByDayRange); err != nil {
+		return nil, fmt.Errorf("error preparing query GetUsageByDayRange: %w", err)
 	}
 	if q.getUsageByHourStmt, err = db.PrepareContext(ctx, getUsageByHour); err != nil {
 		return nil, fmt.Errorf("error preparing query GetUsageByHour: %w", err)
@@ -135,6 +138,9 @@ func Prepare(ctx context.Context, db DBTX) (*Queries, error) {
 	if q.recordFileReadStmt, err = db.PrepareContext(ctx, recordFileRead); err != nil {
 		return nil, fmt.Errorf("error preparing query RecordFileRead: %w", err)
 	}
+	if q.recordTokenUsageStmt, err = db.PrepareContext(ctx, recordTokenUsage); err != nil {
+		return nil, fmt.Errorf("error preparing query RecordTokenUsage: %w", err)
+	}
 	if q.renameSessionStmt, err = db.PrepareContext(ctx, renameSession); err != nil {
 		return nil, fmt.Errorf("error preparing query RenameSession: %w", err)
 	}
@@ -165,14 +171,14 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing createFileStmt: %w", cerr)
 		}
 	}
-	if q.createMessageStmt != nil {
-		if cerr := q.createMessageStmt.Close(); cerr != nil {
-			err = fmt.Errorf("error closing createMessageStmt: %w", cerr)
-		}
-	}
 	if q.createGoalStmt != nil {
 		if cerr := q.createGoalStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing createGoalStmt: %w", cerr)
+		}
+	}
+	if q.createMessageStmt != nil {
+		if cerr := q.createMessageStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing createMessageStmt: %w", cerr)
 		}
 	}
 	if q.createSessionStmt != nil {
@@ -280,6 +286,11 @@ func (q *Queries) Close() error {
 			err = fmt.Errorf("error closing getUsageByDayOfWeekStmt: %w", cerr)
 		}
 	}
+	if q.getUsageByDayRangeStmt != nil {
+		if cerr := q.getUsageByDayRangeStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing getUsageByDayRangeStmt: %w", cerr)
+		}
+	}
 	if q.getUsageByHourStmt != nil {
 		if cerr := q.getUsageByHourStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing getUsageByHourStmt: %w", cerr)
@@ -338,6 +349,11 @@ func (q *Queries) Close() error {
 	if q.recordFileReadStmt != nil {
 		if cerr := q.recordFileReadStmt.Close(); cerr != nil {
 			err = fmt.Errorf("error closing recordFileReadStmt: %w", cerr)
+		}
+	}
+	if q.recordTokenUsageStmt != nil {
+		if cerr := q.recordTokenUsageStmt.Close(); cerr != nil {
+			err = fmt.Errorf("error closing recordTokenUsageStmt: %w", cerr)
 		}
 	}
 	if q.renameSessionStmt != nil {
@@ -406,8 +422,8 @@ type Queries struct {
 	tx                             *sql.Tx
 	accumulateActiveTimeStmt       *sql.Stmt
 	createFileStmt                 *sql.Stmt
-	createMessageStmt              *sql.Stmt
 	createGoalStmt                 *sql.Stmt
+	createMessageStmt              *sql.Stmt
 	createSessionStmt              *sql.Stmt
 	deleteFileStmt                 *sql.Stmt
 	deleteGoalStmt                 *sql.Stmt
@@ -429,6 +445,7 @@ type Queries struct {
 	getTotalStatsStmt              *sql.Stmt
 	getUsageByDayStmt              *sql.Stmt
 	getUsageByDayOfWeekStmt        *sql.Stmt
+	getUsageByDayRangeStmt         *sql.Stmt
 	getUsageByHourStmt             *sql.Stmt
 	getUsageByModelStmt            *sql.Stmt
 	listAllUserMessagesStmt        *sql.Stmt
@@ -441,6 +458,7 @@ type Queries struct {
 	listSessionsStmt               *sql.Stmt
 	listUserMessagesBySessionStmt  *sql.Stmt
 	recordFileReadStmt             *sql.Stmt
+	recordTokenUsageStmt           *sql.Stmt
 	renameSessionStmt              *sql.Stmt
 	updateGoalStatusStmt           *sql.Stmt
 	updateMessageStmt              *sql.Stmt
@@ -454,8 +472,8 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		tx:                             tx,
 		accumulateActiveTimeStmt:       q.accumulateActiveTimeStmt,
 		createFileStmt:                 q.createFileStmt,
-		createMessageStmt:              q.createMessageStmt,
 		createGoalStmt:                 q.createGoalStmt,
+		createMessageStmt:              q.createMessageStmt,
 		createSessionStmt:              q.createSessionStmt,
 		deleteFileStmt:                 q.deleteFileStmt,
 		deleteGoalStmt:                 q.deleteGoalStmt,
@@ -477,6 +495,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		getTotalStatsStmt:              q.getTotalStatsStmt,
 		getUsageByDayStmt:              q.getUsageByDayStmt,
 		getUsageByDayOfWeekStmt:        q.getUsageByDayOfWeekStmt,
+		getUsageByDayRangeStmt:         q.getUsageByDayRangeStmt,
 		getUsageByHourStmt:             q.getUsageByHourStmt,
 		getUsageByModelStmt:            q.getUsageByModelStmt,
 		listAllUserMessagesStmt:        q.listAllUserMessagesStmt,
@@ -489,6 +508,7 @@ func (q *Queries) WithTx(tx *sql.Tx) *Queries {
 		listSessionsStmt:               q.listSessionsStmt,
 		listUserMessagesBySessionStmt:  q.listUserMessagesBySessionStmt,
 		recordFileReadStmt:             q.recordFileReadStmt,
+		recordTokenUsageStmt:           q.recordTokenUsageStmt,
 		renameSessionStmt:              q.renameSessionStmt,
 		updateGoalStatusStmt:           q.updateGoalStatusStmt,
 		updateMessageStmt:              q.updateMessageStmt,

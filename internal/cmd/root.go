@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	_ "embed"
 	"errors"
 	"fmt"
@@ -109,7 +110,7 @@ crush --continue
 		sessionID, _ := cmd.Flags().GetString("session")
 		continueLast, _ := cmd.Flags().GetBool("continue")
 
-		ws, cleanup, err := setupWorkspaceWithProgressBar(cmd)
+		ws, cleanup, dbConn, err := setupWorkspaceWithProgressBar(cmd)
 		if err != nil {
 			return err
 		}
@@ -125,7 +126,7 @@ crush --continue
 
 		event.AppInitialized()
 
-		com := common.DefaultCommon(ws)
+		com := common.NewCommon(ws, dbConn)
 		model := ui.New(com, sessionID, continueLast)
 
 		inputFilter := ui.NewFilter()
@@ -220,26 +221,26 @@ func useClientServer() bool {
 
 // setupWorkspaceWithProgressBar wraps setupWorkspace with an optional
 // terminal progress bar shown during initialization.
-func setupWorkspaceWithProgressBar(cmd *cobra.Command) (workspace.Workspace, func(), error) {
+func setupWorkspaceWithProgressBar(cmd *cobra.Command) (workspace.Workspace, func(), *sql.DB, error) {
 	showProgress := supportsProgressBar()
 	if showProgress {
 		_, _ = fmt.Fprintf(os.Stderr, ansi.SetIndeterminateProgressBar)
 	}
 
-	ws, cleanup, err := setupWorkspace(cmd)
+	ws, cleanup, dbConn, err := setupWorkspace(cmd)
 
 	if showProgress {
 		_, _ = fmt.Fprintf(os.Stderr, ansi.ResetProgressBar)
 	}
 
-	return ws, cleanup, err
+	return ws, cleanup, dbConn, err
 }
 
-// setupWorkspace returns a Workspace and cleanup function. When
+// setupWorkspace returns a Workspace, cleanup function, and DB connection. When
 // CRUSH_CLIENT_SERVER=1, it connects to a server process and returns a
 // ClientWorkspace. Otherwise it creates an in-process app.App and
 // returns an AppWorkspace.
-func setupWorkspace(cmd *cobra.Command) (workspace.Workspace, func(), error) {
+func setupWorkspace(cmd *cobra.Command) (workspace.Workspace, func(), *sql.DB, error) {
 	if useClientServer() {
 		return setupClientServerWorkspace(cmd)
 	}
@@ -247,8 +248,8 @@ func setupWorkspace(cmd *cobra.Command) (workspace.Workspace, func(), error) {
 }
 
 // setupLocalWorkspace creates an in-process app.App and wraps it in an
-// AppWorkspace.
-func setupLocalWorkspace(cmd *cobra.Command) (workspace.Workspace, func(), error) {
+// AppWorkspace. Returns workspace, cleanup function, DB connection, and error.
+func setupLocalWorkspace(cmd *cobra.Command) (workspace.Workspace, func(), *sql.DB, error) {
 	debug, _ := cmd.Flags().GetBool("debug")
 	yolo, _ := cmd.Flags().GetBool("yolo")
 	dataDir, _ := cmd.Flags().GetString("data-dir")
@@ -256,25 +257,25 @@ func setupLocalWorkspace(cmd *cobra.Command) (workspace.Workspace, func(), error
 
 	cwd, err := ResolveCwd(cmd)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	store, err := config.Init(cwd, dataDir, debug)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	cfg := store.Config()
 	store.Overrides().SkipPermissionRequests = yolo
 
 	if err := os.MkdirAll(cfg.Options.DataDirectory, 0o700); err != nil {
-		return nil, nil, fmt.Errorf("failed to create data directory: %q %w", cfg.Options.DataDirectory, err)
+		return nil, nil, nil, fmt.Errorf("failed to create data directory: %q %w", cfg.Options.DataDirectory, err)
 	}
 
 	gitIgnorePath := filepath.Join(cfg.Options.DataDirectory, ".gitignore")
 	if _, err := os.Stat(gitIgnorePath); os.IsNotExist(err) {
 		if err := os.WriteFile(gitIgnorePath, []byte("*\n"), 0o644); err != nil {
-			return nil, nil, fmt.Errorf("failed to create .gitignore file: %q %w", gitIgnorePath, err)
+			return nil, nil, nil, fmt.Errorf("failed to create .gitignore file: %q %w", gitIgnorePath, err)
 		}
 	}
 
@@ -284,7 +285,7 @@ func setupLocalWorkspace(cmd *cobra.Command) (workspace.Workspace, func(), error
 
 	conn, err := db.Connect(ctx, cfg.Options.DataDirectory)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	logFile := filepath.Join(cfg.Options.DataDirectory, "logs", "crush.log")
@@ -307,7 +308,7 @@ func setupLocalWorkspace(cmd *cobra.Command) (workspace.Workspace, func(), error
 	if err != nil {
 		_ = conn.Close()
 		slog.Error("Failed to create app instance", "error", err)
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	if shouldEnableMetrics(cfg) {
@@ -316,7 +317,7 @@ func setupLocalWorkspace(cmd *cobra.Command) (workspace.Workspace, func(), error
 
 	ws := workspace.NewAppWorkspace(appInstance, store)
 	cleanup := func() { appInstance.Shutdown() }
-	return ws, cleanup, nil
+	return ws, cleanup, conn, err
 }
 
 // localSkillsDiscoveryConfig adapts a *config.ConfigStore to the inputs
@@ -341,11 +342,11 @@ func localSkillsDiscoveryConfig(store *config.ConfigStore) skills.DiscoveryConfi
 }
 
 // setupClientServerWorkspace connects to a server process and wraps the
-// result in a ClientWorkspace.
-func setupClientServerWorkspace(cmd *cobra.Command) (workspace.Workspace, func(), error) {
+// result in a ClientWorkspace. Returns workspace, cleanup function, nil DB, and error.
+func setupClientServerWorkspace(cmd *cobra.Command) (workspace.Workspace, func(), *sql.DB, error) {
 	c, protoWs, cleanupServer, err := connectToServer(cmd)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
 	clientWs := workspace.NewClientWorkspace(c, *protoWs)
@@ -356,7 +357,7 @@ func setupClientServerWorkspace(cmd *cobra.Command) (workspace.Workspace, func()
 		}
 	}
 
-	return clientWs, cleanupServer, nil
+	return clientWs, cleanupServer, nil, nil
 }
 
 // connectToServer ensures the server is running, creates a client and

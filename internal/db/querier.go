@@ -9,13 +9,13 @@ import (
 )
 
 type Querier interface {
-	AccumulateActiveTime(ctx context.Context, scopeID string) error
+	AccumulateActiveTime(ctx context.Context, sessionID string) error
 	CreateFile(ctx context.Context, arg CreateFileParams) (File, error)
-	CreateMessage(ctx context.Context, arg CreateMessageParams) (Message, error)
 	CreateGoal(ctx context.Context, arg CreateGoalParams) (Goal, error)
+	CreateMessage(ctx context.Context, arg CreateMessageParams) (Message, error)
 	CreateSession(ctx context.Context, arg CreateSessionParams) (Session, error)
 	DeleteFile(ctx context.Context, id string) error
-	DeleteGoal(ctx context.Context, scopeID string) error
+	DeleteGoal(ctx context.Context, sessionID string) error
 	DeleteMessage(ctx context.Context, id string) error
 	DeleteSession(ctx context.Context, id string) error
 	DeleteSessionFiles(ctx context.Context, sessionID string) error
@@ -34,6 +34,7 @@ type Querier interface {
 	GetTotalStats(ctx context.Context) (GetTotalStatsRow, error)
 	GetUsageByDay(ctx context.Context) ([]GetUsageByDayRow, error)
 	GetUsageByDayOfWeek(ctx context.Context) ([]GetUsageByDayOfWeekRow, error)
+	GetUsageByDayRange(ctx context.Context, strftime interface{}) ([]GetUsageByDayRangeRow, error)
 	GetUsageByHour(ctx context.Context) ([]GetUsageByHourRow, error)
 	GetUsageByModel(ctx context.Context) ([]GetUsageByModelRow, error)
 	ListAllUserMessages(ctx context.Context) ([]Message, error)
@@ -46,6 +47,7 @@ type Querier interface {
 	ListSessions(ctx context.Context) ([]Session, error)
 	ListUserMessagesBySession(ctx context.Context, sessionID string) ([]Message, error)
 	RecordFileRead(ctx context.Context, arg RecordFileReadParams) error
+	RecordTokenUsage(ctx context.Context, arg RecordTokenUsageParams) error
 	RenameSession(ctx context.Context, arg RenameSessionParams) error
 	UpdateGoalStatus(ctx context.Context, arg UpdateGoalStatusParams) (Goal, error)
 	UpdateMessage(ctx context.Context, arg UpdateMessageParams) error

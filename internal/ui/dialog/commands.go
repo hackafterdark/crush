@@ -195,6 +195,9 @@ func (c *Commands) HandleMsg(msg tea.Msg) Action {
 		case key.Matches(msg, c.keyMap.Select):
 			if selectedItem := c.list.SelectedItem(); selectedItem != nil {
 				if item, ok := selectedItem.(*CommandItem); ok && item != nil {
+					if item.disabled {
+						return nil
+					}
 					return item.Action()
 				}
 			}
@@ -213,6 +216,9 @@ func (c *Commands) HandleMsg(msg tea.Msg) Action {
 			for _, item := range c.list.FilteredItems() {
 				if item, ok := item.(*CommandItem); ok && item != nil {
 					if msg.String() == item.Shortcut() {
+						if item.disabled {
+							return nil
+						}
 						return item.Action()
 					}
 				}
@@ -383,7 +389,17 @@ func (c *Commands) previousCommandType() CommandType {
 
 // setCommandItems sets the command items based on the specified command type.
 func (c *Commands) setCommandItems(commandType CommandType) {
+	isSwitching := c.selected != commandType
 	c.selected = commandType
+
+	var selectedID string
+	if !isSwitching {
+		if selectedItem := c.list.SelectedItem(); selectedItem != nil {
+			if item, ok := selectedItem.(*CommandItem); ok && item != nil {
+				selectedID = item.ID()
+			}
+		}
+	}
 
 	commandItems := []list.FilterableItem{}
 	switch c.selected {
@@ -423,10 +439,30 @@ func (c *Commands) setCommandItems(commandType CommandType) {
 	}
 
 	c.list.SetItems(commandItems...)
-	c.list.SetFilter("")
-	c.list.ScrollToTop()
-	c.list.SetSelected(0)
-	c.input.SetValue("")
+
+	if isSwitching {
+		c.list.SetFilter("")
+		c.list.ScrollToTop()
+		c.list.SetSelected(0)
+		c.input.SetValue("")
+	} else if selectedID != "" {
+		filteredItems := c.list.FilteredItems()
+		found := false
+		for i, item := range filteredItems {
+			if cmdItem, ok := item.(*CommandItem); ok && cmdItem != nil {
+				if cmdItem.ID() == selectedID {
+					c.list.SetSelected(i)
+					found = true
+					break
+				}
+			}
+		}
+		if !found {
+			c.list.SetSelected(0)
+		}
+	} else {
+		c.list.SetSelected(0)
+	}
 }
 
 // defaultCommands returns the list of default system commands.
@@ -492,14 +528,12 @@ func (c *Commands) defaultCommands() []*CommandItem {
 		commands = append(commands, NewCommandItem(c.com.Styles, "open_external_editor", "Open External Editor", "ctrl+o", ActionExternalEditor{}))
 	}
 
-	// Add Docker MCP command if available and not already enabled.
-	if !cfg.IsDockerMCPEnabled() && c.dockerMCPAvailable != nil && *c.dockerMCPAvailable {
-		commands = append(commands, NewCommandItem(c.com.Styles, "enable_docker_mcp", "Enable Docker MCP Catalog", "", ActionEnableDockerMCP{}))
-	}
-
-	// Add disable Docker MCP command if it's currently enabled
+	// Add Docker MCP commands.
 	if cfg.IsDockerMCPEnabled() {
 		commands = append(commands, NewCommandItem(c.com.Styles, "disable_docker_mcp", "Disable Docker MCP Catalog", "", ActionDisableDockerMCP{}))
+	} else {
+		disabled := c.dockerMCPAvailable == nil || !*c.dockerMCPAvailable
+		commands = append(commands, NewCommandItem(c.com.Styles, "enable_docker_mcp", "Enable Docker MCP Catalog", "", ActionEnableDockerMCP{}).WithDisabled(disabled))
 	}
 
 	if c.hasTodos || c.hasQueue {
@@ -523,6 +557,7 @@ func (c *Commands) defaultCommands() []*CommandItem {
 		commands,
 		NewCommandItem(c.com.Styles, "toggle_yolo", "Toggle Yolo Mode", "ctrl+y", ActionToggleYoloMode{}),
 		NewCommandItem(c.com.Styles, "toggle_help", "Toggle Help", "ctrl+g", ActionToggleHelp{}),
+		NewCommandItem(c.com.Styles, "usage_stats", "Usage Stats", "", ActionOpenDialog{UsageID}),
 		NewCommandItem(c.com.Styles, "init", "Initialize Project", "", ActionInitializeProject{}),
 		NewCommandItem(c.com.Styles, "set_goal", "Set Goal", "", ActionSetGoal{}),
 		NewCommandItem(c.com.Styles, "clear_goal", "Clear Goal", "", ActionGoalClear{}),

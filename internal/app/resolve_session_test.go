@@ -64,6 +64,10 @@ func (m *mockSessionService) UpdateTitleAndUsage(context.Context, string, string
 	return nil
 }
 
+func (m *mockSessionService) RecordTokenUsage(context.Context, string, string, string, int64, int64, float64) error {
+	return nil
+}
+
 func (m *mockSessionService) Rename(context.Context, string, string) error {
 	return nil
 }

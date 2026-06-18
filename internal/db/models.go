@@ -61,3 +61,14 @@ type Session struct {
 	Todos            sql.NullString `json:"todos"`
 	CurrentTokens    int64          `json:"current_tokens"`
 }
+
+type TokenUsage struct {
+	ID               string  `json:"id"`
+	SessionID        string  `json:"session_id"`
+	Model            string  `json:"model"`
+	Provider         string  `json:"provider"`
+	PromptTokens     int64   `json:"prompt_tokens"`
+	CompletionTokens int64   `json:"completion_tokens"`
+	Cost             float64 `json:"cost"`
+	CreatedAt        int64   `json:"created_at"`
+}

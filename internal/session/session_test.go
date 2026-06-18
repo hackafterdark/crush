@@ -79,3 +79,34 @@ func TestEstimatedUsageStateCanBeClearedByExplicitSave(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, refetched.EstimatedUsage)
 }
+
+func TestRecordTokenUsage(t *testing.T) {
+	dataDir := t.TempDir()
+	t.Cleanup(func() {
+		require.NoError(t, db.Release(dataDir))
+		db.ResetPool()
+	})
+
+	conn, err := db.Connect(t.Context(), dataDir)
+	require.NoError(t, err)
+
+	sessions := NewService(db.New(conn), conn)
+
+	created, err := sessions.Create(t.Context(), "test")
+	require.NoError(t, err)
+
+	err = sessions.RecordTokenUsage(t.Context(), created.ID, "gpt-4", "openai", 100, 50, 0.003)
+	require.NoError(t, err)
+
+	var model, provider string
+	var promptTokens, completionTokens int64
+	var cost float64
+	err = conn.QueryRowContext(t.Context(), "SELECT model, provider, prompt_tokens, completion_tokens, cost FROM token_usage WHERE session_id = ?", created.ID).
+		Scan(&model, &provider, &promptTokens, &completionTokens, &cost)
+	require.NoError(t, err)
+	require.Equal(t, "gpt-4", model)
+	require.Equal(t, "openai", provider)
+	require.Equal(t, int64(100), promptTokens)
+	require.Equal(t, int64(50), completionTokens)
+	require.InDelta(t, 0.003, cost, 0.0001)
+}

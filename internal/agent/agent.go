@@ -1147,7 +1147,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 				return getSessionErr
 			}
 			usage, estimated := fallbackStepUsage(stepMessages, stepResult)
-			a.updateSessionUsage(largeModel, &updatedSession, usage, a.openrouterCost(stepResult.ProviderMetadata), estimated)
+			a.updateSessionUsage(ctx, largeModel, &updatedSession, usage, a.openrouterCost(stepResult.ProviderMetadata), estimated)
 			// Update CurrentTokens to reflect the actual context window usage
 			// after the response is received (PromptTokens + CompletionTokens).
 			updatedSession.CurrentTokens = updatedSession.PromptTokens + updatedSession.CompletionTokens
@@ -1580,7 +1580,7 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fan
 		}
 	}
 
-	a.updateSessionUsage(largeModel, &currentSession, resp.TotalUsage, openrouterCost, false)
+	a.updateSessionUsage(genCtx, largeModel, &currentSession, resp.TotalUsage, openrouterCost, false)
 
 	// Just in case, get just the last usage info.
 	usage := resp.Response.Usage
@@ -2082,6 +2082,12 @@ func (a *sessionAgent) generateTitle(ctx context.Context, sessionID string, user
 		slog.Error("Failed to save session title and usage", "error", saveErr)
 		return
 	}
+	if a.sessions != nil {
+		err := a.sessions.RecordTokenUsage(ctx, sessionID, model.ModelCfg.Model, model.ModelCfg.Provider, promptTokens, completionTokens, cost)
+		if err != nil {
+			slog.Error("Failed to record title generation token usage", "session_id", sessionID, "error", err)
+		}
+	}
 	titleSaved = true
 }
 
@@ -2098,7 +2104,7 @@ func (a *sessionAgent) openrouterCost(metadata fantasy.ProviderMetadata) *float6
 	return &opts.Usage.Cost
 }
 
-func (a *sessionAgent) updateSessionUsage(model Model, session *session.Session, usage fantasy.Usage, overrideCost *float64, estimated bool) {
+func (a *sessionAgent) updateSessionUsage(ctx context.Context, model Model, session *session.Session, usage fantasy.Usage, overrideCost *float64, estimated bool) {
 	if !usageIsZero(usage) {
 		session.EstimatedUsage = estimated
 	}
@@ -2124,6 +2130,17 @@ func (a *sessionAgent) updateSessionUsage(model Model, session *session.Session,
 		// Skip cost accumulation
 		if model.FlatRate {
 			cost = 0
+		}
+	}
+
+	if !estimated && a.sessions != nil {
+		promptTokens := usage.InputTokens + usage.CacheReadTokens + usage.CacheCreationTokens
+		completionTokens := usage.OutputTokens
+		if promptTokens > 0 || completionTokens > 0 || cost > 0 {
+			err := a.sessions.RecordTokenUsage(ctx, session.ID, model.ModelCfg.Model, model.ModelCfg.Provider, promptTokens, completionTokens, cost)
+			if err != nil {
+				slog.Error("Failed to record token usage", "session_id", session.ID, "error", err)
+			}
 		}
 	}
 

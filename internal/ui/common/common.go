@@ -1,6 +1,7 @@
 package common
 
 import (
+	"database/sql"
 	"fmt"
 	"image"
 	"os"
@@ -24,6 +25,13 @@ var AllowedImageTypes = []string{".jpg", ".jpeg", ".png"}
 type Common struct {
 	Workspace workspace.Workspace
 	Styles    *styles.Styles
+	db        *sql.DB
+}
+
+// DB returns the underlying database connection, or nil if not available
+// (e.g., in client/server mode or when not initialized).
+func (c *Common) DB() *sql.DB {
+	return c.db
 }
 
 // Config returns the pure-data configuration associated with this [Common] instance.
@@ -39,6 +47,18 @@ func DefaultCommon(ws workspace.Workspace) *Common {
 	return &Common{
 		Workspace: ws,
 		Styles:    &s,
+	}
+}
+
+// NewCommon returns a Common with the given workspace, styles, and DB
+// connection. When the workspace has a large model selected, the theme
+// is chosen based on its provider; otherwise the default theme is used.
+func NewCommon(ws workspace.Workspace, db *sql.DB) *Common {
+	s := styles.ThemeForProvider(largeModelProviderID(ws))
+	return &Common{
+		Workspace: ws,
+		Styles:    &s,
+		db:        db,
 	}
 }
 

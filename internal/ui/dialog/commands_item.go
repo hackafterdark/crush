@@ -23,6 +23,7 @@ type CommandItem struct {
 	m           fuzzy.Match
 	cache       map[int]string
 	focused     bool
+	disabled    bool
 }
 
 var _ ListItem = &CommandItem{Versioned: list.NewVersioned()}
@@ -55,6 +56,12 @@ func (c *CommandItem) WithAliases(aliases ...string) *CommandItem {
 // the title.
 func (c *CommandItem) WithDescription(desc string) *CommandItem {
 	c.description = desc
+	return c
+}
+
+// WithDisabled returns the CommandItem with the given disabled state.
+func (c *CommandItem) WithDisabled(disabled bool) *CommandItem {
+	c.disabled = disabled
 	return c
 }
 
@@ -111,17 +118,35 @@ func (c *CommandItem) Shortcut() string {
 
 // Render implements ListItem.
 func (c *CommandItem) Render(width int) string {
+	itemBlurred := c.t.Dialog.NormalItem
+	itemFocused := c.t.Dialog.SelectedItem
+	infoTextBlurred := c.t.Dialog.ListItem.InfoBlurred
+	infoTextFocused := c.t.Dialog.ListItem.InfoFocused
+
+	if c.disabled {
+		disabledFg := c.t.Dialog.SecondaryText.GetForeground()
+		itemBlurred = c.t.Dialog.NormalItem.Copy().Foreground(disabledFg)
+		itemFocused = c.t.Dialog.SelectedItem.Copy().Foreground(disabledFg)
+		infoTextBlurred = c.t.Dialog.ListItem.InfoBlurred.Copy().Foreground(disabledFg)
+		infoTextFocused = c.t.Dialog.ListItem.InfoFocused.Copy().Foreground(disabledFg)
+	}
+
 	styles := ListItemStyles{
-		ItemBlurred:     c.t.Dialog.NormalItem,
-		ItemFocused:     c.t.Dialog.SelectedItem,
-		InfoTextBlurred: c.t.Dialog.ListItem.InfoBlurred,
-		InfoTextFocused: c.t.Dialog.ListItem.InfoFocused,
+		ItemBlurred:     itemBlurred,
+		ItemFocused:     itemFocused,
+		InfoTextBlurred: infoTextBlurred,
+		InfoTextFocused: infoTextFocused,
 	}
 	rendered := renderItem(styles, c.title, c.shortcut, c.focused, width, c.cache, &c.m)
 	if c.description != "" {
 		descStyle := c.t.Dialog.SecondaryText
 		if c.focused {
-			descStyle = c.t.Dialog.SelectedItem
+			if c.disabled {
+				disabledFg := c.t.Dialog.SecondaryText.GetForeground()
+				descStyle = c.t.Dialog.SelectedItem.Copy().Foreground(disabledFg)
+			} else {
+				descStyle = c.t.Dialog.SelectedItem
+			}
 		}
 		contentWidth := max(0, width-descStyle.GetHorizontalFrameSize()+1)
 		description := ansi.Truncate(strings.TrimSpace(c.description), contentWidth, "...")

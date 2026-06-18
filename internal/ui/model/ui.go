@@ -3621,6 +3621,10 @@ func (m *UI) openDialog(id string) tea.Cmd {
 		if cmd := m.openQuitDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case dialog.UsageID:
+		if cmd := m.openUsageStatsDialog(); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
 	default:
 		// Unknown dialog
 		break
@@ -3722,6 +3726,20 @@ func (m *UI) openReasoningDialog() tea.Cmd {
 
 	m.dialog.OpenDialog(reasoningDialog)
 	return nil
+}
+
+// openUsageStatsDialog opens the usage stats dialog.
+func (m *UI) openUsageStatsDialog() tea.Cmd {
+	if m.dialog.ContainsDialog(dialog.UsageID) {
+		m.dialog.BringToFront(dialog.UsageID)
+		return nil
+	}
+
+	usageDialog := dialog.NewUsage(m.com)
+	m.dialog.OpenDialog(usageDialog)
+	return func() tea.Msg {
+		return dialog.LoadUsageDataMsg{}
+	}
 }
 
 // openNotificationsDialog opens the notification style picker dialog.

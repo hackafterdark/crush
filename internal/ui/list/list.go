@@ -582,8 +582,13 @@ func (l *List) PrependItems(items ...Item) {
 // dropped.
 func (l *List) SetItems(items ...Item) {
 	l.items = items
-	l.selectedIdx = min(l.selectedIdx, len(l.items)-1)
-	l.offsetIdx = min(l.offsetIdx, len(l.items)-1)
+	if len(l.items) > 0 {
+		l.selectedIdx = max(-1, min(l.selectedIdx, len(l.items)-1))
+		l.offsetIdx = max(0, min(l.offsetIdx, len(l.items)-1))
+	} else {
+		l.selectedIdx = -1
+		l.offsetIdx = -1
+	}
 	l.offsetLine = 0
 	l.retainCacheFor(items)
 }

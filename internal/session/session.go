@@ -73,6 +73,7 @@ type Service interface {
 	List(ctx context.Context) ([]Session, error)
 	Save(ctx context.Context, session Session) (Session, error)
 	UpdateTitleAndUsage(ctx context.Context, sessionID, title string, promptTokens, completionTokens int64, cost float64) error
+	RecordTokenUsage(ctx context.Context, sessionID, model, provider string, promptTokens, completionTokens int64, cost float64) error
 	Rename(ctx context.Context, id string, title string) error
 	Delete(ctx context.Context, id string) error
 
@@ -228,6 +229,20 @@ func (s *service) UpdateTitleAndUsage(ctx context.Context, sessionID, title stri
 	return s.q.UpdateSessionTitleAndUsage(ctx, db.UpdateSessionTitleAndUsageParams{
 		ID:               sessionID,
 		Title:            title,
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		Cost:             cost,
+	})
+}
+
+// RecordTokenUsage inserts a new token usage record.
+func (s *service) RecordTokenUsage(ctx context.Context, sessionID, model, provider string, promptTokens, completionTokens int64, cost float64) error {
+	id := uuid.New().String()
+	return s.q.RecordTokenUsage(ctx, db.RecordTokenUsageParams{
+		ID:               id,
+		SessionID:        sessionID,
+		Model:            model,
+		Provider:         provider,
 		PromptTokens:     promptTokens,
 		CompletionTokens: completionTokens,
 		Cost:             cost,
