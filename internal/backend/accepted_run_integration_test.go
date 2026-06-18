@@ -8,6 +8,7 @@ import (
 	"charm.land/fantasy"
 	"github.com/charmbracelet/crush/internal/agent"
 	"github.com/charmbracelet/crush/internal/agent/agenttest"
+	"github.com/charmbracelet/crush/internal/agent/parser"
 	"github.com/charmbracelet/crush/internal/db"
 	"github.com/charmbracelet/crush/internal/message"
 	"github.com/charmbracelet/crush/internal/proto"
@@ -54,6 +55,7 @@ func newRealCoordinator(t *testing.T) (*gatedCoordinator, session.Service, messa
 
 	coord, err := agenttest.NewCoordinator(t.Context(), t.TempDir(), sessions, messages)
 	require.NoError(t, err)
+	t.Cleanup(func() { parser.CloseWatcher() })
 
 	return &gatedCoordinator{
 		Coordinator: coord,
