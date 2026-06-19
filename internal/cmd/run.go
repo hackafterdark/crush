@@ -191,7 +191,11 @@ func runNonInteractive(
 	progress = ws.Config.Options.Progress == nil || *ws.Config.Options.Progress
 
 	if !hideSpinner && stderrTTY {
-		t := styles.ThemeForProvider(ws.Config.Models[config.SelectedModelTypeLarge].Provider)
+		var themeOpt string
+		if ws.Config != nil && ws.Config.Options != nil && ws.Config.Options.TUI != nil {
+			themeOpt = ws.Config.Options.TUI.Theme
+		}
+		t := styles.Theme(themeOpt, ws.Config.Models[config.SelectedModelTypeLarge].Provider, ws.Path)
 
 		hasDarkBG := true
 		if stdinTTY && stdoutTTY {

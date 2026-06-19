@@ -43,7 +43,15 @@ func (c *Common) Config() *config.Config {
 // workspace has a large model selected, the theme is chosen based on its
 // provider; otherwise the default theme is used.
 func DefaultCommon(ws workspace.Workspace) *Common {
-	s := styles.ThemeForProvider(largeModelProviderID(ws))
+	var themeOpt string
+	var workingDir string
+	if ws != nil {
+		workingDir = ws.WorkingDir()
+		if cfg := ws.Config(); cfg != nil && cfg.Options != nil && cfg.Options.TUI != nil {
+			themeOpt = cfg.Options.TUI.Theme
+		}
+	}
+	s := styles.Theme(themeOpt, largeModelProviderID(ws), workingDir)
 	return &Common{
 		Workspace: ws,
 		Styles:    &s,
@@ -54,7 +62,15 @@ func DefaultCommon(ws workspace.Workspace) *Common {
 // connection. When the workspace has a large model selected, the theme
 // is chosen based on its provider; otherwise the default theme is used.
 func NewCommon(ws workspace.Workspace, db *sql.DB) *Common {
-	s := styles.ThemeForProvider(largeModelProviderID(ws))
+	var themeOpt string
+	var workingDir string
+	if ws != nil {
+		workingDir = ws.WorkingDir()
+		if cfg := ws.Config(); cfg != nil && cfg.Options != nil && cfg.Options.TUI != nil {
+			themeOpt = cfg.Options.TUI.Theme
+		}
+	}
+	s := styles.Theme(themeOpt, largeModelProviderID(ws), workingDir)
 	return &Common{
 		Workspace: ws,
 		Styles:    &s,
