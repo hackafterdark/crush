@@ -125,6 +125,7 @@ type Coordinator interface {
 	Model() Model
 	UpdateModels(ctx context.Context) error
 	GoalRuntime() *goal.Runtime
+	GenerateTitle(ctx context.Context, sessionID, prompt string)
 }
 
 type coordinator struct {
@@ -1298,6 +1299,14 @@ func (c *coordinator) Summarize(ctx context.Context, sessionID string) error {
 	}
 
 	return c.runWithUnauthorizedRetry(ctx, providerCfg, summarize)
+}
+
+// GenerateTitle generates a session title using the current agent.
+func (c *coordinator) GenerateTitle(ctx context.Context, sessionID, prompt string) {
+	if c.currentAgent == nil {
+		return
+	}
+	c.currentAgent.GenerateTitle(ctx, sessionID, prompt)
 }
 
 // refreshTokenIfExpired proactively refreshes the OAuth token if it has expired.

@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"regexp"
@@ -140,6 +141,7 @@ type SessionAgent interface {
 	ClearQueue(sessionID string)
 	Summarize(context.Context, string, fantasy.ProviderOptions) error
 	Model() Model
+	GenerateTitle(ctx context.Context, sessionID, userPrompt string)
 }
 
 type Model struct {
@@ -725,11 +727,11 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 	}
 
 	var wg sync.WaitGroup
-	// Generate title if first message.
-	if len(msgs) == 0 {
+	// Generate title from the first real (non-shell) user prompt.
+	if !hasUserTextMessage(msgs) {
 		titleCtx := ctx // Copy to avoid race with ctx reassignment below.
 		wg.Go(func() {
-			a.generateTitle(titleCtx, call.SessionID, call.Prompt)
+			a.GenerateTitle(titleCtx, call.SessionID, call.Prompt)
 		})
 	}
 	defer wg.Wait()
@@ -1148,6 +1150,7 @@ func (a *sessionAgent) Run(ctx context.Context, call SessionAgentCall) (result *
 			}
 			usage, estimated := fallbackStepUsage(stepMessages, stepResult)
 			a.updateSessionUsage(ctx, largeModel, &updatedSession, usage, a.openrouterCost(stepResult.ProviderMetadata), estimated)
+			extractHyperCredits(stepResult.ProviderMetadata)
 			// Update CurrentTokens to reflect the actual context window usage
 			// after the response is received (PromptTokens + CompletionTokens).
 			updatedSession.CurrentTokens = updatedSession.PromptTokens + updatedSession.CompletionTokens
@@ -1578,6 +1581,7 @@ func (a *sessionAgent) Summarize(ctx context.Context, sessionID string, opts fan
 			}
 			openrouterCost = &newCost
 		}
+		extractHyperCredits(step.ProviderMetadata)
 	}
 
 	a.updateSessionUsage(genCtx, largeModel, &currentSession, resp.TotalUsage, openrouterCost, false)
@@ -1950,8 +1954,24 @@ func (a *sessionAgent) getSessionMessages(ctx context.Context, session session.S
 	return msgs, nil
 }
 
-// generateTitle generates a session titled based on the initial prompt.
-func (a *sessionAgent) generateTitle(ctx context.Context, sessionID string, userPrompt string) {
+// hasUserTextMessage reports whether any user message in msgs contains
+// text content (as opposed to only shell commands or other non-text parts).
+func hasUserTextMessage(msgs []message.Message) bool {
+	for _, msg := range msgs {
+		if msg.Role != message.User {
+			continue
+		}
+		for _, part := range msg.Parts {
+			if tc, ok := part.(message.TextContent); ok && tc.Text != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// GenerateTitle generates a session title based on the initial prompt.
+func (a *sessionAgent) GenerateTitle(ctx context.Context, sessionID string, userPrompt string) {
 	if userPrompt == "" {
 		return
 	}
@@ -2054,6 +2074,7 @@ func (a *sessionAgent) generateTitle(ctx context.Context, sessionID string, user
 			}
 			openrouterCost = &newCost
 		}
+		extractHyperCredits(step.ProviderMetadata)
 	}
 
 	modelConfig := model.CatwalkCfg
@@ -2102,6 +2123,25 @@ func (a *sessionAgent) openrouterCost(metadata fantasy.ProviderMetadata) *float6
 		return nil
 	}
 	return &opts.Usage.Cost
+}
+
+// extractHyperCredits reads usage.remaining.hypercredits from OpenAI
+// provider metadata and stores it for the next FetchCredits call.
+func extractHyperCredits(metadata fantasy.ProviderMetadata) {
+	openaiMeta, ok := metadata[openai.Name]
+	if !ok {
+		return
+	}
+	pm, ok := openaiMeta.(*openai.ProviderMetadata)
+	if !ok {
+		return
+	}
+	var remaining struct {
+		Hypercredits float64 `json:"hypercredits"`
+	}
+	if pm.ExtraField("remaining", &remaining) && remaining.Hypercredits > 0 {
+		hyper.SetBalance(int(math.Round(remaining.Hypercredits)))
+	}
 }
 
 func (a *sessionAgent) updateSessionUsage(ctx context.Context, model Model, session *session.Session, usage fantasy.Usage, overrideCost *float64, estimated bool) {
