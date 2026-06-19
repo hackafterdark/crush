@@ -749,7 +749,6 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 		tools.NewFetchTool(c.permissions, c.cfg.WorkingDir(), nil),
 		tools.NewGlobTool(c.cfg.WorkingDir()),
 		tools.NewGrepTool(c.cfg.WorkingDir(), c.cfg.Config().Tools.Grep),
-		tools.NewStructuralSearchTool(c.cfg.WorkingDir()),
 		tools.NewReloadQueriesTool(c.cfg.WorkingDir()),
 		tools.NewLsTool(c.permissions, c.cfg.WorkingDir(), c.cfg.Config().Tools.Ls),
 		tools.NewSourcegraphTool(nil),
@@ -762,6 +761,11 @@ func (c *coordinator) buildTools(ctx context.Context, agent config.Agent, isSubA
 	// Add LSP tools if user has configured LSPs or auto_lsp is enabled (nil or true).
 	if len(c.cfg.Config().LSP) > 0 || c.cfg.Config().Options.AutoLSP == nil || *c.cfg.Config().Options.AutoLSP {
 		allTools = append(allTools, tools.NewDiagnosticsTool(c.lspManager), tools.NewReferencesTool(c.lspManager), tools.NewLSPRestartTool(c.lspManager))
+	}
+
+	// Add structural search only when CGO is available (required for tree-sitter).
+	if structuralSearchAvailable {
+		allTools = append(allTools, tools.NewStructuralSearchTool(c.cfg.WorkingDir()))
 	}
 
 	if len(c.cfg.Config().MCP) > 0 {

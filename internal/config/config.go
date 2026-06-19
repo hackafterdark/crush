@@ -226,6 +226,17 @@ type TUIOptions struct {
 	Completions Completions       `json:"completions,omitzero" jsonschema:"description=Completions UI options"`
 	Transparent *bool             `json:"transparent,omitempty" jsonschema:"description=Enable transparent background for the TUI interface,default=false"`
 	KeyBindings map[string]string `json:"keybindings,omitempty" jsonschema:"description=Custom TUI key bindings. Keys are binding names, values are key combinations (e.g., \"ctrl+alt+v\"). Unspecified bindings use defaults."`
+
+	HistoryLimit     *int `json:"history_limit,omitempty" jsonschema:"description=Initial number of messages to load in chat history,default=100"`
+	HistoryBatchSize *int `json:"history_batch_size,omitempty" jsonschema:"description=Number of messages to load when pagination is triggered,default=50"`
+}
+
+// HistoryLimits returns the user-defined history_limit and history_batch_size, or their defaults.
+func (t *TUIOptions) HistoryLimits() (limit, batchSize int) {
+	if t == nil {
+		return 100, 50
+	}
+	return ptrValOr(t.HistoryLimit, 100), ptrValOr(t.HistoryBatchSize, 50)
 }
 
 // Completions defines options for the completions UI.

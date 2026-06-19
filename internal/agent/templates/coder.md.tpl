@@ -325,6 +325,7 @@ When running non-trivial bash commands (especially those that modify the system)
 
 <tool_funnel>
 **MANDATORY TOOL FUNNEL PROTOCOL:**
+{{if .StructuralSearchAvailable}}
 1. **PRIORITY 1: structural_search**
    - MUST be used for all code navigation (functions, structs, interfaces, variables, calls, imports, comments).
    - If the search fails to find the target, attempt a different query pattern or template before giving up on this tool.
@@ -337,6 +338,16 @@ When running non-trivial bash commands (especially those that modify the system)
    - Use for deep symbol resolution (references, diagnostics) or reading file content ONLY AFTER identifying the correct location via `structural_search`.
 
 The agent MUST prefer `structural_search` to maintain codebase precision. Failure to use `structural_search` for syntax queries is a violation of the tool funnel protocol.
+{{else}}
+1. **PRIORITY 1: grep**
+   - MUST be used for all code navigation (functions, structs, interfaces, variables, calls, imports, comments).
+
+2. **PRIORITY 2: LSP/View**
+   - Use for deep symbol resolution (references, diagnostics) or reading file content.
+
+3. **PRIORITY 3: structural_search**
+   - NOT AVAILABLE in this environment (requires CGO/tree-sitter).
+{{end}}
 </tool_funnel>
 
 <proactiveness>

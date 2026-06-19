@@ -186,6 +186,10 @@ type UI struct {
 
 	lastUserMessageTime int64
 
+	// Paginated message history tracking
+	allSessionMessages  []message.Message
+	loadedMessagesCount int
+
 	// The width and height of the terminal in cells.
 	width  int
 	height int
@@ -627,7 +631,37 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, util.ReportError(err))
 			break
 		}
-		if cmd := m.setSessionMessages(msgs); cmd != nil {
+		m.allSessionMessages = msgs
+		limit := 100
+		if m.com.Config() != nil && m.com.Config().Options != nil && m.com.Config().Options.TUI != nil {
+			limit, _ = m.com.Config().Options.TUI.HistoryLimits()
+		}
+		topLevelCount := 0
+		for _, msg := range msgs {
+			if msg.Role == message.User || msg.Role == message.Assistant {
+				topLevelCount++
+			}
+		}
+		if topLevelCount < limit {
+			limit = topLevelCount
+		}
+		m.loadedMessagesCount = limit
+		var msgsToLoad []message.Message
+		if len(msgs) > 0 {
+			seenTopLevel := 0
+			startIndex := len(msgs)
+			for i := len(msgs) - 1; i >= 0; i-- {
+				if msgs[i].Role == message.User || msgs[i].Role == message.Assistant {
+					seenTopLevel++
+				}
+				startIndex = i
+				if seenTopLevel == limit {
+					break
+				}
+			}
+			msgsToLoad = msgs[startIndex:]
+		}
+		if cmd := m.setSessionMessages(msgsToLoad); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
 		if cmd := m.autoExpandPillsIfReasonable(); cmd != nil {
@@ -746,11 +780,41 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		switch msg.Type {
 		case pubsub.CreatedEvent:
+			exists := false
+			for _, mMsg := range m.allSessionMessages {
+				if mMsg.ID == msg.Payload.ID {
+					exists = true
+					break
+				}
+			}
+			if !exists {
+				m.allSessionMessages = append(m.allSessionMessages, msg.Payload)
+				m.loadedMessagesCount++
+				slog.Debug("new session message", "id", msg.Payload.ID, "role", msg.Payload.Role)
+			}
 			cmds = append(cmds, m.appendSessionMessage(msg.Payload))
+			m.pruneHistoryIfNeeded()
 		case pubsub.UpdatedEvent:
+			for i, mMsg := range m.allSessionMessages {
+				if mMsg.ID == msg.Payload.ID {
+					m.allSessionMessages[i] = msg.Payload
+					break
+				}
+			}
 			cmds = append(cmds, m.updateSessionMessage(msg.Payload))
 		case pubsub.DeletedEvent:
 			m.chat.RemoveMessage(msg.Payload.ID)
+			for i, mMsg := range m.allSessionMessages {
+				if mMsg.ID == msg.Payload.ID {
+					wasLoaded := i >= len(m.allSessionMessages)-m.loadedMessagesCount
+					m.allSessionMessages = append(m.allSessionMessages[:i], m.allSessionMessages[i+1:]...)
+					if wasLoaded {
+						m.loadedMessagesCount--
+					}
+					break
+				}
+			}
+			m.updateLoadMoreRemaining()
 		}
 		// start the spinner if there is a new message
 		if (hasInProgressTodo(m.session.Todos) || hasInProgressGoal(m.currentGoal)) && m.isAgentBusy() && !m.todoIsSpinning {
@@ -829,7 +893,11 @@ func (m *UI) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.copyChatHighlight())
 	case DelayedClickMsg:
 		// Handle delayed single-click action (e.g., expansion).
-		m.chat.HandleDelayedClick(msg)
+		if _, cmd := m.chat.HandleDelayedClick(msg); cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	case chat.LoadMoreMessagesMsg:
+		cmds = append(cmds, m.loadMoreMessages())
 	case tea.MouseClickMsg:
 		// Pass mouse events to dialogs first if any are open.
 		if m.dialog.HasDialogs() {
@@ -1086,7 +1154,21 @@ func (m *UI) setSessionMessages(msgs []message.Message) tea.Cmd {
 	}
 
 	// Add messages to chat with linked tool results
-	items := make([]chat.MessageItem, 0, len(msgs)*2)
+	items := make([]chat.MessageItem, 0, len(msgs)*2+1)
+
+	// Prepend LoadMoreItem if there are remaining messages in the session
+	totalTopLevel := 0
+	for _, mMsg := range m.allSessionMessages {
+		if mMsg.Role == message.User || mMsg.Role == message.Assistant {
+			totalTopLevel++
+		}
+	}
+	remaining := totalTopLevel - m.loadedMessagesCount
+	if remaining > 0 {
+		loadMoreItem := chat.NewLoadMoreItem(m.com.Styles, remaining)
+		items = append(items, loadMoreItem)
+	}
+
 	for _, msg := range msgPtrs {
 		switch msg.Role {
 		case message.User:
@@ -1122,6 +1204,194 @@ func (m *UI) setSessionMessages(msgs []message.Message) tea.Cmd {
 	}
 	m.chat.SelectLast()
 	return tea.Sequence(cmds...)
+}
+
+// loadMoreMessages loads the next batch of previous messages and prepends them.
+func (m *UI) loadMoreMessages() tea.Cmd {
+	totalTopLevel := 0
+	for _, msg := range m.allSessionMessages {
+		if msg.Role == message.User || msg.Role == message.Assistant {
+			totalTopLevel++
+		}
+	}
+
+	if m.loadedMessagesCount >= totalTopLevel {
+		return nil
+	}
+
+	var cmds []tea.Cmd
+
+	batchSize := 50
+	if m.com.Config() != nil && m.com.Config().Options != nil && m.com.Config().Options.TUI != nil {
+		_, batchSize = m.com.Config().Options.TUI.HistoryLimits()
+	}
+	remainingTopLevel := totalTopLevel - m.loadedMessagesCount
+	if remainingTopLevel < batchSize {
+		batchSize = remainingTopLevel
+	}
+
+	newLoadedCount := m.loadedMessagesCount + batchSize
+
+	// Find the startIndex and endIndex in allSessionMessages corresponding to the top-level messages
+	seenTopLevel := 0
+	startIndex := len(m.allSessionMessages)
+	endIndex := len(m.allSessionMessages)
+
+	for i := len(m.allSessionMessages) - 1; i >= 0; i-- {
+		if m.allSessionMessages[i].Role == message.User || m.allSessionMessages[i].Role == message.Assistant {
+			seenTopLevel++
+		}
+		if seenTopLevel == m.loadedMessagesCount {
+			endIndex = i
+		}
+		if seenTopLevel == newLoadedCount {
+			startIndex = i
+			break
+		}
+	}
+
+	msgsToPrepend := m.allSessionMessages[startIndex:endIndex]
+	m.loadedMessagesCount = newLoadedCount
+
+	msgPtrs := make([]*message.Message, len(msgsToPrepend))
+	for i := range msgsToPrepend {
+		msgPtrs[i] = &msgsToPrepend[i]
+	}
+	toolResultMap := chat.BuildToolResultMap(msgPtrs)
+
+	items := make([]chat.MessageItem, 0, len(msgsToPrepend)*2)
+	lastUserTime := m.lastUserMessageTime
+	if len(msgPtrs) > 0 {
+		lastUserTime = msgPtrs[0].CreatedAt
+	}
+	for _, msg := range msgPtrs {
+		switch msg.Role {
+		case message.User:
+			lastUserTime = msg.CreatedAt
+			items = append(items, chat.ExtractMessageItems(m.com.Styles, msg, toolResultMap)...)
+		case message.Assistant:
+			items = append(items, chat.ExtractMessageItems(m.com.Styles, msg, toolResultMap)...)
+			if msg.FinishPart() != nil && msg.FinishPart().Reason == message.FinishReasonEndTurn {
+				infoItem := chat.NewAssistantInfoItem(m.com.Styles, msg, m.com.Config(), time.Unix(lastUserTime, 0))
+				items = append(items, infoItem)
+			}
+		default:
+			items = append(items, chat.ExtractMessageItems(m.com.Styles, msg, toolResultMap)...)
+		}
+	}
+
+	m.loadNestedToolCalls(items)
+
+	for _, item := range items {
+		if animatable, ok := item.(chat.Animatable); ok {
+			if cmd := animatable.StartAnimation(); cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+		}
+	}
+
+	if m.chat.Len() > 0 {
+		if _, ok := m.chat.ItemAt(0).(*chat.LoadMoreItem); ok {
+			m.chat.RemoveMessage("load-more")
+		}
+	}
+
+	m.chat.PrependMessages(items...)
+
+	newRemaining := totalTopLevel - m.loadedMessagesCount
+	if newRemaining > 0 {
+		loadMoreItem := chat.NewLoadMoreItem(m.com.Styles, newRemaining)
+		m.chat.PrependMessages(loadMoreItem)
+	}
+
+	targetSelectIdx := len(items)
+	if newRemaining > 0 {
+		targetSelectIdx = len(items) + 1
+	}
+
+	m.chat.SetSelected(targetSelectIdx)
+	m.chat.ScrollToSelected()
+
+	return tea.Batch(cmds...)
+}
+
+// updateLoadMoreRemaining updates or removes the load-more item.
+func (m *UI) updateLoadMoreRemaining() {
+	totalTopLevel := 0
+	for _, mMsg := range m.allSessionMessages {
+		if mMsg.Role == message.User || mMsg.Role == message.Assistant {
+			totalTopLevel++
+		}
+	}
+	remaining := totalTopLevel - m.loadedMessagesCount
+
+	if m.chat.Len() > 0 {
+		if lm, ok := m.chat.ItemAt(0).(*chat.LoadMoreItem); ok {
+			if remaining <= 0 {
+				m.chat.RemoveMessage("load-more")
+			} else {
+				lm.SetRemaining(remaining)
+			}
+			return
+		}
+	}
+	if remaining > 0 {
+		loadMoreItem := chat.NewLoadMoreItem(m.com.Styles, remaining)
+		m.chat.PrependMessages(loadMoreItem)
+	}
+}
+
+// pruneHistoryIfNeeded unloads older messages from the top of the chat view if the loaded count exceeds the limit.
+func (m *UI) pruneHistoryIfNeeded() {
+	limit := 100
+	if m.com.Config() != nil && m.com.Config().Options != nil && m.com.Config().Options.TUI != nil {
+		limit, _ = m.com.Config().Options.TUI.HistoryLimits()
+	}
+
+	// Trigger pruning when loadedMessagesCount is more than 2x the limit
+	triggerThreshold := limit * 2
+	// slog.Debug("pruneHistoryIfNeeded", "loadedMessagesCount", m.loadedMessagesCount, "limit", limit, "triggerThreshold", triggerThreshold)
+	if m.loadedMessagesCount <= triggerThreshold {
+		return
+	}
+
+	// slog.Info("pruning chat history", "loadedMessagesCount", m.loadedMessagesCount, "limit", limit)
+
+	// Prune down to limit
+	for m.loadedMessagesCount > limit {
+		startIdx := 0
+		if m.chat.Len() > 0 {
+			if _, ok := m.chat.ItemAt(0).(*chat.LoadMoreItem); ok {
+				startIdx = 1
+			}
+		}
+
+		if m.chat.Len() <= startIdx {
+			break
+		}
+
+		item := m.chat.ItemAt(startIdx)
+		if item == nil {
+			break
+		}
+
+		msgItem, ok := item.(chat.MessageItem)
+		if !ok {
+			break
+		}
+
+		id := msgItem.ID()
+		// Remove all items belonging to this message ID from the TUI chat list
+		for m.chat.MessageItem(id) != nil {
+			m.chat.RemoveMessage(id)
+		}
+
+		m.loadedMessagesCount--
+	}
+
+	// slog.Info("chat history pruned", "remaining", m.loadedMessagesCount, "chatLen", m.chat.Len())
+	// Update or insert the LoadMoreItem at the top of the chat
+	m.updateLoadMoreRemaining()
 }
 
 // loadNestedToolCalls recursively loads nested tool calls for agent/agentic_fetch tools.

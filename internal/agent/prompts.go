@@ -18,6 +18,7 @@ var taskPromptTmpl []byte
 var initializePromptTmpl []byte
 
 func coderPrompt(opts ...prompt.Option) (*prompt.Prompt, error) {
+	opts = append(opts, prompt.WithStructuralSearchAvailable(structuralSearchAvailable))
 	systemPrompt, err := prompt.NewPrompt("coder", string(coderPromptTmpl), opts...)
 	if err != nil {
 		return nil, err

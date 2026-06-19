@@ -768,3 +768,58 @@ func TestList_F7_ViewportZeroOrNegative(t *testing.T) {
 		})
 	}
 }
+
+// TestList_PrependItems_Stability verifies that prepending items to a list
+// correctly shifts the offsetIdx and selectedIdx to maintain scroll and focus stability.
+func TestList_PrependItems_Stability(t *testing.T) {
+	t.Parallel()
+
+	// Initial items:
+	// Index 0: Banner (height 1)
+	// Index 1: MsgA (height 2)
+	// Index 2: MsgB (height 2)
+	banner := newMultiLineItem("banner", 1)
+	msgA := newMultiLineItem("msgA", 2)
+	msgB := newMultiLineItem("msgB", 2)
+
+	l := NewList(banner, msgA, msgB)
+	l.SetSize(40, 5)
+	l.SetSelected(0) // banner selected
+
+	// Initially, banner (Index 0) is at the top of the viewport.
+	require.Equal(t, 0, l.offsetIdx)
+	require.Equal(t, 0, l.selectedIdx)
+
+	// Prepend 3 new messages (height 1 each)
+	new1 := newMultiLineItem("new1", 1)
+	new2 := newMultiLineItem("new2", 1)
+	new3 := newMultiLineItem("new3", 1)
+
+	l.PrependItems(new1, new2, new3)
+
+	// Verify indices have been shifted by 3.
+	// The banner is now at Index 3.
+	require.Equal(t, 3, l.offsetIdx, "offsetIdx must shift by number of prepended items")
+	require.Equal(t, 3, l.selectedIdx, "selectedIdx must shift by number of prepended items")
+
+	// Render the list.
+	// Since offsetIdx is 3, the rendered viewport should start at the banner.
+	out := l.Render()
+	lines := strings.Split(out, "\n")
+
+	// Expected viewport lines:
+	// banner:0
+	// msgA:0
+	// msgA:1
+	// msgB:0
+	// msgB:1
+	expected := []string{
+		"banner:0",
+		"msgA:0",
+		"msgA:1",
+		"msgB:0",
+		"msgB:1",
+	}
+	require.Equal(t, expected, lines, "rendered viewport content must remain the same after prepend")
+}
+

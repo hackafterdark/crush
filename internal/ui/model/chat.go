@@ -218,6 +218,11 @@ func (m *Chat) Len() int {
 	return m.list.Len()
 }
 
+// ItemAt returns the item at the given index.
+func (m *Chat) ItemAt(index int) list.Item {
+	return m.list.ItemAt(index)
+}
+
 // InvalidateRenderCaches drops cached rendered output on every message
 // item so the next draw re-renders with the current styles.
 func (m *Chat) InvalidateRenderCaches() {
@@ -265,6 +270,28 @@ func (m *Chat) AppendMessages(msgs ...chat.MessageItem) {
 		items[i] = msg
 	}
 	m.list.AppendItems(items...)
+}
+
+// PrependMessages prepends new message items to the beginning of the chat list.
+func (m *Chat) PrependMessages(msgs ...chat.MessageItem) {
+	// Shift existing indices in the map
+	shift := len(msgs)
+	for id, idx := range m.idInxMap {
+		m.idInxMap[id] = idx + shift
+	}
+
+	items := make([]list.Item, len(msgs))
+	for i, msg := range msgs {
+		m.idInxMap[msg.ID()] = i
+		// Register nested tool IDs for tools that contain nested tools.
+		if container, ok := msg.(chat.NestedToolContainer); ok {
+			for _, nested := range container.NestedTools() {
+				m.idInxMap[nested.ID()] = i
+			}
+		}
+		items[i] = msg
+	}
+	m.list.PrependItems(items...)
 }
 
 // UpdateNestedToolIDs updates the ID map for nested tools within a container.
@@ -714,21 +741,22 @@ func (m *Chat) HandleMouseDown(x, y int) (bool, tea.Cmd) {
 // HandleDelayedClick handles a delayed single-click action (like expansion).
 // It only executes if the click ID matches (i.e., no double-click occurred)
 // and no text selection was made (drag to select).
-func (m *Chat) HandleDelayedClick(msg DelayedClickMsg) bool {
+func (m *Chat) HandleDelayedClick(msg DelayedClickMsg) (bool, tea.Cmd) {
 	// Ignore if this click was superseded by a newer click (double/triple).
 	if msg.ClickID != m.pendingClickID {
-		return false
+		return false, nil
 	}
 
 	// Don't expand if user dragged to select text.
 	if m.HasHighlight() {
-		return false
+		return false, nil
 	}
 
 	// Execute the click action (e.g., expansion).
 	selectedItem := m.list.SelectedItem()
 	if clickable, ok := selectedItem.(list.MouseClickable); ok {
 		handled := clickable.HandleMouseClick(ansi.MouseButton1, msg.X, msg.Y)
+		var cmd tea.Cmd
 		// Toggle expansion only when the item signalled it handled the
 		// click. Items like AssistantMessageItem only report handled when
 		// the click is on their expandable region, so this avoids
@@ -739,14 +767,17 @@ func (m *Chat) HandleDelayedClick(msg DelayedClickMsg) bool {
 					m.ScrollToIndex(m.list.Selected())
 				}
 			}
+			if triggerer, ok := selectedItem.(interface{ Trigger() tea.Cmd }); ok {
+				cmd = triggerer.Trigger()
+			}
 		}
 		if m.AtBottom() {
 			m.ScrollToBottom()
 		}
-		return handled
+		return handled, cmd
 	}
 
-	return false
+	return false, nil
 }
 
 // HandleMouseUp handles mouse up events for the chat component.
